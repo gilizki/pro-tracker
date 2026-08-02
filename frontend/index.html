@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Tracker</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background-color: #f2f2f7; margin: 0; padding: 15px; }
+        .container { background-color: white; border-radius: 15px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px; margin: 0 auto; }
+        h1 { text-align: center; color: #333; margin-bottom: 15px; font-size: 24px; }
+        
+        .summary-box { display: flex; justify-content: space-between; background: #e3f2fd; padding: 15px; border-radius: 10px; margin-bottom: 20px; font-weight: bold; font-size: 18px; color: #0277bd; }
+        
+        input, button { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; font-size: 16px; margin-bottom: 12px; font-family: inherit;}
+        button { background-color: #007aff; color: white; border: none; font-weight: bold; cursor: pointer; font-size: 18px; transition: 0.2s;}
+        button:active { background-color: #005bb5; }
+        
+        .btn-green { background-color: #34c759; margin-top: 10px; }
+        .btn-green:active { background-color: #248a3d; }
+        
+        .row { display: flex; gap: 10px; }
+        
+        .meal-list { margin-top: 20px; }
+        .meal-item { background: #f9f9f9; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 15px; border: 1px solid #eee;}
+        .meal-details { color: #666; font-size: 14px; }
+        
+        .delete-btn { width: auto; padding: 8px 12px; background-color: #ff3b30; font-size: 14px; margin: 0; border-radius: 6px; }
+        .delete-btn:active { background-color: #c92a20; }
+
+        /* אזור יצירת המאכל מוסתר כברירת מחדל */
+        #new-food-section { display: none; background: #f8f9fa; padding: 15px; border-radius: 10px; border: 2px dashed #007aff; margin-bottom: 15px; }
+        #new-food-section h3 { margin-top: 0; font-size: 16px; color: #007aff; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>היומן שלי 🥗</h1>
+        
+        <input type="date" id="date-picker" onchange="loadSummary()">
+
+        <div class="summary-box">
+            <div>🔥 קלוריות: <span id="total-cal">0</span></div>
+            <div>💪 חלבון: <span id="total-pro">0</span>g</div>
+        </div>
+
+        <!-- חיפוש חכם במקום רשימה נפתחת רגילה -->
+        <input type="text" id="food-search" list="food-options" placeholder="הקלד לחיפוש או בחירת מאכל...">
+        <datalist id="food-options"></datalist> <!-- הנתונים ייכנסו לכאן מהשרת -->
+        
+        <input type="number" id="amount" placeholder="כמות בגרמים" min="1">
+        <button onclick="handleAddMealClick()">הוסף ארוחה</button>
+
+        <!-- אזור יצירת מאכל חדש (מוסתר עד שצריך אותו) -->
+        <div id="new-food-section">
+            <h3>המאכל לא נמצא! ניצור אותו?</h3>
+            <input type="text" id="new-food-name" placeholder="שם המאכל" readonly>
+            <div class="row">
+                <input type="number" id="new-food-cal" placeholder="קלוריות (ל-100ג')">
+                <input type="number" id="new-food-pro" placeholder="חלבון (ל-100ג')">
+            </div>
+            <button class="btn-green" onclick="createNewFood()">שמור למאגר</button>
+        </div>
+
+        <div class="meal-list" id="meal-list"></div>
+    </div>
+
+    <script>
+        const API_URL = '';
+        let allFoods = []; // משתנה שישמור את כל המאכלים בזיכרון של הדף
+
+        document.getElementById('date-picker').valueAsDate = new Date();
+
+        // טעינת מאכלים לתוך ה-Datalist והזיכרון
+        async function loadFoods() {
+            const res = await fetch(`${API_URL}/foods/`);
+            allFoods = await res.json();
+            
+            const datalist = document.getElementById('food-options');
+            datalist.innerHTML = '';
+            allFoods.forEach(food => {
+                datalist.innerHTML += `<option value="${food.name}">`;
+            });
+        }
+
+        async function loadSummary() {
+            const date = document.getElementById('date-picker').value;
+            const res = await fetch(`${API_URL}/summary/${date}`);
+            const data = await res.json();
+            
+            document.getElementById('total-cal').innerText = data.total_calories || 0;
+            document.getElementById('total-pro').innerText = data.total_protein || 0;
+            
+            const mealList = document.getElementById('meal-list');
+            mealList.innerHTML = '';
+            if(data.meals && data.meals.length > 0) {
+                data.meals.forEach(meal => {
+                    mealList.innerHTML += `
+                    <div class="meal-item">
+                        <div>
+                            <strong>${meal.food_name}</strong> (${meal.amount_grams}g)<br>
+                            <span class="meal-details">${meal.calories} קל' | ${meal.protein}g חלבון</span>
+                        </div>
+                        <button class="delete-btn" onclick="deleteMeal(${meal.log_id})">🗑️</button>
+                    </div>`;
+                });
+            } else {
+                mealList.innerHTML = '<div style="text-align:center; color:#999;">עוד לא אכלת כלום היום!</div>';
+            }
+        }
+
+        // הפונקציה שמופעלת כשלוחצים על הוספת ארוחה
+        async function handleAddMealClick() {
+            const searchedName = document.getElementById('food-search').value.trim();
+            const amount = document.getElementById('amount').value;
+            const date = document.getElementById('date-picker').value;
+
+            if(!searchedName || !amount) {
+                alert("חובה להזין מאכל וכמות בגרמים");
+                return;
+            }
+
+            // מחפש אם המאכל שהוקלד קיים במאגר שלנו
+            const existingFood = allFoods.find(f => f.name === searchedName);
+
+            if (existingFood) {
+                // המאכל קיים -> שולחים אותו ליומן
+                document.getElementById('new-food-section').style.display = 'none'; // מוודא שהטופס מוסתר
+                await fetch(`${API_URL}/logs/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        food_id: existingFood.id,
+                        amount_grams: parseFloat(amount),
+                        date: date
+                    })
+                });
+                document.getElementById('amount').value = '';
+                document.getElementById('food-search').value = '';
+                loadSummary(); 
+            } else {
+                // המאכל לא קיים -> פותחים את טופס היצירה
+                document.getElementById('new-food-section').style.display = 'block';
+                document.getElementById('new-food-name').value = searchedName;
+            }
+        }
+
+        async function deleteMeal(logId) {
+            if(confirm("למחוק את הארוחה הזו מהיומן?")) {
+                await fetch(`${API_URL}/logs/${logId}`, { method: 'DELETE' });
+                loadSummary(); 
+            }
+        }
+
+        async function createNewFood() {
+            const name = document.getElementById('new-food-name').value;
+            const cal = document.getElementById('new-food-cal').value;
+            const pro = document.getElementById('new-food-pro').value;
+
+            if(!cal || !pro) {
+                alert("נא להזין קלוריות וחלבון למאכל החדש");
+                return;
+            }
+
+            // שמירת המאכל החדש
+            await fetch(`${API_URL}/foods/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    calories: parseFloat(cal),
+                    protein: parseFloat(pro)
+                })
+            });
+
+            // מנקה את השדות ומעלים את הטופס
+            document.getElementById('new-food-cal').value = '';
+            document.getElementById('new-food-pro').value = '';
+            document.getElementById('new-food-section').style.display = 'none';
+            
+            // טוען מחדש את המאכלים כדי שהחדש יופיע בחיפוש
+            await loadFoods();
+            
+            // עכשיו שהמאכל קיים, אנחנו יכולים פשוט להוסיף אותו מיד ליומן!
+            handleAddMealClick(); 
+        }
+
+        loadFoods();
+        loadSummary();
+    </script>
+
+</body>
+</html>
