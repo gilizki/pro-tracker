@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 import os
 import database
 
@@ -15,6 +16,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# מאפשר לשרת להציג קבצים (כמו תמונות) מתוך תיקיית frontend
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 def get_db():
     db = database.SessionLocal()
