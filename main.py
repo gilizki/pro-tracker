@@ -11,12 +11,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from database import Base, engine, get_db
+from database import Base, engine, get_db, migrate_legacy_user_passwords
 from models import User  # Ensures every mapped model is registered before create_all.
 from schemas import Credentials, FoodCreate, RecordCreate
 from services import AuthenticationService, FoodService, RecordService
 
 Base.metadata.create_all(bind=engine)
+migrate_legacy_user_passwords()
 
 app = FastAPI(title="Pro Tracker")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)

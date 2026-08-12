@@ -72,7 +72,11 @@
       if (state.token) headers.Authorization = `Bearer ${state.token}`;
       if (options.body) headers['Content-Type'] = 'application/json';
       const response = await fetch(path, { ...options, headers });
-      if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || 'הפעולה נכשלה'); }
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const detail = typeof body.detail === 'string' ? body.detail : '';
+        throw new Error(detail || `שגיאת שרת (${response.status}). נסה שוב בעוד רגע.`);
+      }
       return response.status === 204 ? null : response.json();
     }
 
