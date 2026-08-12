@@ -1,58 +1,58 @@
+<div align="center">
+
 # 🍎 Pro Tracker
 
 > **A full-stack nutrition tracking application for managing meals, calories, and protein.**
 
 Pro Tracker lets users create an account, log the food they eat, and track their daily calorie and protein intake through a clean **Hebrew RTL interface**.
 
+</div>
+
+---
+
 ## ✨ Features
 
-* 👤 User registration & login
-* 🔐 Secure token-based authentication
-* 🍎 Shared food catalogue
-* 🍽️ Meal tracking by date and grams
-* 🔥 Automatic calorie calculation
-* 💪 Automatic protein calculation
-* 📅 Daily nutrition summaries
-* 📱 Mobile-friendly RTL interface
+- 👤 User registration & login
+- 🔐 Secure token-based authentication
+- 🍎 Shared food catalogue
+- 🍽️ Meal tracking by date and grams
+- 🔥 Automatic calorie calculation
+- 💪 Automatic protein calculation
+- 📅 Daily nutrition summaries
+- 📱 Mobile-friendly RTL interface
+
+---
 
 ## 🛠️ Tech Stack
 
-**Backend**
+| Backend | Frontend | Security |
+| :--- | :--- | :--- |
+| Python | HTML | PBKDF2-HMAC-SHA-256 password hashing |
+| FastAPI | CSS | Secure session tokens |
+| SQLAlchemy | Vanilla JavaScript | Hashed tokens stored in the database |
+| SQLite / PostgreSQL |  |  |
 
-* Python
-* FastAPI
-* SQLAlchemy
-* SQLite / PostgreSQL
-
-**Frontend**
-
-* HTML
-* CSS
-* Vanilla JavaScript
-
-**Security**
-
-* PBKDF2-HMAC-SHA-256 password hashing
-* Secure session tokens
-* Hashed tokens stored in the database
+---
 
 ## 🏗️ Architecture
 
 ```text
 Frontend
-   ↓
+    ↓
 FastAPI API
-   ↓
+    ↓
 Service Layer
-   ↓
+    ↓
 Repository Layer
-   ↓
+    ↓
 SQLAlchemy
-   ↓
+    ↓
 SQLite / PostgreSQL
 ```
 
 The project uses a layered architecture to keep API controllers, business logic, and database operations separated.
+
+---
 
 ## 📂 Structure
 
@@ -67,6 +67,8 @@ The project uses a layered architecture to keep API controllers, business logic,
 └── frontend/
     └── index.html   # Web application
 ```
+
+---
 
 ## 🚀 Run Locally
 
@@ -83,6 +85,8 @@ FastAPI also provides interactive API documentation at:
 /docs
 ```
 
+---
+
 ## 🧮 Nutrition Calculation
 
 Nutrition values are stored per 100g:
@@ -97,6 +101,10 @@ Daily totals are automatically calculated from the user's logged meals.
 
 ---
 
+<div align="center">
+
 ### 🍎 Pro Tracker
 
 **Track your food. Know your numbers.**
+
+</div>
