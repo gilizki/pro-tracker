@@ -15,6 +15,7 @@ from database import Base, engine, get_db, migrate_legacy_user_passwords
 from models import User  # Ensures every mapped model is registered before create_all.
 from schemas import Credentials, FoodCreate, RecordCreate
 from services import AuthenticationService, FoodService, RecordService
+from friends_routes import build_friends_router  # Also registers the friends tables before create_all.
 
 Base.metadata.create_all(bind=engine)
 migrate_legacy_user_passwords()
@@ -89,3 +90,6 @@ def get_daily_summary(record_date: date, user: User = Depends(current_user), db:
 def delete_record(record_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     record_service.delete_record(db, user, record_id)
     return {"status": "deleted"}
+
+
+app.include_router(build_friends_router(current_user))

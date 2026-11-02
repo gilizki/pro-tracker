@@ -29,3 +29,26 @@ CREATE TABLE auth_sessions (
 );
 
 CREATE INDEX ix_user_records_user_date ON user_records(user_id, record_date);
+
+-- Friends feature. A pending request or an accepted friendship between two users.
+-- pair_key = '<smaller user id>:<larger user id>' allows only one row per pair.
+CREATE TABLE friendships (
+    id INTEGER PRIMARY KEY,
+    requester_id INTEGER NOT NULL REFERENCES users(id),
+    addressee_id INTEGER NOT NULL REFERENCES users(id),
+    status VARCHAR(16) NOT NULL,
+    pair_key VARCHAR(64) NOT NULL UNIQUE,
+    created_at DATETIME NOT NULL,
+    CONSTRAINT ck_friendships_not_self CHECK (requester_id <> addressee_id),
+    CONSTRAINT ck_friendships_status CHECK (status IN ('pending', 'accepted'))
+);
+
+CREATE INDEX ix_friendships_requester_id ON friendships(requester_id);
+CREATE INDEX ix_friendships_addressee_id ON friendships(addressee_id);
+
+-- One permanent invite code per user, replaced only when the user regenerates it.
+CREATE TABLE friend_invite_codes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+    code VARCHAR(16) NOT NULL UNIQUE
+);

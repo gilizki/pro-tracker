@@ -60,12 +60,13 @@
     </section>
   </main>
 
+  <script src="/frontend/day.js"></script>
   <script>
     const state = { token: localStorage.getItem('proTrackerToken'), foods: [] };
     const $ = id => document.getElementById(id);
     const setError = (id, message = '') => $(id).textContent = message;
     const show = (id, visible) => $(id).classList.toggle('hidden', !visible);
-    const today = () => new Date().toISOString().slice(0, 10);
+    const today = () => trackerDay();
 
     async function request(path, options = {}) {
       const headers = { ...(options.headers || {}) };
@@ -133,5 +134,6 @@
     $('logout').onclick = async () => { try { await request('/auth/logout', { method: 'POST' }); } finally { localStorage.removeItem('proTrackerToken'); state.token = null; displayAuth(); } };
     (async () => { if (!state.token) return displayAuth(); try { displayTracker(await request('/auth/me')); } catch (_) { localStorage.removeItem('proTrackerToken'); state.token = null; displayAuth(); } })();
   </script>
+  <script src="/frontend/friends.js"></script>
 </body>
 </html>

@@ -85,6 +85,8 @@ FastAPI also provides interactive API documentation at:
 /docs
 ```
 
+To run the tests: `pip install -r requirements-dev.txt`, then `pytest` (the day-boundary tests also need Node.js).
+
 ---
 
 ## 🧮 Nutrition Calculation
@@ -98,6 +100,16 @@ protein = food_protein × factor
 ```
 
 Daily totals are automatically calculated from the user's logged meals.
+
+---
+
+## 👥 Friends
+
+Users can add a friend by username or by invite code, and the other user has to accept the request.
+Friends see only each other's daily totals (calories and protein), never meals or foods.
+You can regenerate your invite code or remove a friend at any time.
+
+A day runs from 02:00 to 01:59 Israel time, so a meal logged at 01:30 counts toward the previous day.
 
 ---
 
