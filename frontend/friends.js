@@ -24,6 +24,10 @@
   section.className = 'friends';
   section.innerHTML = `
     <summary>חברים 👥</summary>
+    <div data-f="friends-block" hidden>
+      <h3>החברים שלי – היום</h3>
+      <div data-f="friends"></div>
+    </div>
     <h3>קוד ההזמנה שלי</h3>
     <div class="friends-code">
       <b data-f="code">…</b>
@@ -39,8 +43,6 @@
     <div data-f="incoming"></div>
     <h3>בקשות ששלחתי</h3>
     <div data-f="outgoing"></div>
-    <h3>החברים שלי – היום</h3>
-    <div data-f="friends"></div>
   `;
   trackerView.append(section);
   const el = name => section.querySelector(`[data-f="${name}"]`);
@@ -106,6 +108,7 @@
 
   async function loadFriends() {
     const friends = await api(`/friends?date=${trackerDay()}`); // shared 02:00 Israel-time rule (day.js)
+    el('friends-block').hidden = !friends.length;
     fill(el('friends'), friends.map(f => row(f.username, `🔥 ${f.total_calories} קל׳ · 💪 ${f.total_protein}g חלבון`, [
       smallButton('הסר', 'danger', () => {
         if (confirm(`להסיר את ${f.username} מהחברים?`)) act(`/friends/${f.user_id}`, 'DELETE', 'החבר הוסר.');
@@ -159,6 +162,7 @@
       section.open = false;
       notify();
       el('code').textContent = '…';
+      el('friends-block').hidden = true;
       ['incoming', 'outgoing', 'friends'].forEach(name => el(name).replaceChildren());
     }
   }).observe(trackerView, { attributes: true, attributeFilter: ['class'] });
