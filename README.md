@@ -113,6 +113,24 @@ A day runs from 02:00 to 01:59 Israel time, so a meal logged at 01:30 counts tow
 
 ---
 
+## 🔔 Notifications
+
+Friends get a push notification on their phone when you:
+
+- 💪 **מכונת חלבון**: pass 120 g protein in a day
+- 🌙 **מאנץ' לילי**: log a meal between 00:00 and 01:59 (silent)
+- 🚜 **בולדוזר**: pass 2000 kcal before 20:00
+
+Each type is sent at most once per day per friend, one per meal, and at most 2 per day in total.
+Thresholds and texts live in `notifications_config.py`. Tap "הפעל התראות" in the app to enable
+(on iPhone, add the site to the Home Screen and open it from there first).
+
+Push needs three environment variables (never commit them): `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
+and `VAPID_SUBJECT`. Generate the keys once with `python tools/generate_vapid_keys.py`.
+Without them the app works as before, without notifications.
+
+---
+
 <div align="center">
 
 ### 🍎 Pro Tracker

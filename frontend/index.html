@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="apple-touch-icon" href="/frontend/icon.PNG">
+  <link rel="manifest" href="/manifest.webmanifest">
   <title>Pro Tracker</title>
   <style>
     :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222; background: #f2f2f7; }
@@ -135,5 +136,6 @@
     (async () => { if (!state.token) return displayAuth(); try { displayTracker(await request('/auth/me')); } catch (_) { localStorage.removeItem('proTrackerToken'); state.token = null; displayAuth(); } })();
   </script>
   <script src="/frontend/friends.js"></script>
+  <script src="/frontend/notifications.js"></script>
 </body>
 </html>

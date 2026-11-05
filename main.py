@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import os
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +16,7 @@ from models import User  # Ensures every mapped model is registered before creat
 from schemas import Credentials, FoodCreate, RecordCreate
 from services import AuthenticationService, FoodService, RecordService
 from friends_routes import build_friends_router  # Also registers the friends tables before create_all.
+from notifications_routes import build_notifications_router, israel_now, schedule_meal_notifications  # Also registers its tables.
 
 Base.metadata.create_all(bind=engine)
 migrate_legacy_user_passwords()
@@ -77,8 +78,12 @@ def create_food(food: FoodCreate, _: User = Depends(current_user), db: Session =
 
 
 @app.post("/records/")
-def create_record(record: RecordCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return record_service.add_record(db, user, record.food_id, record.amount_grams, record.date)
+def create_record(record: RecordCreate, background_tasks: BackgroundTasks,
+                  logged_at: datetime = Depends(israel_now),  # first dependency: resolved before auth
+                  user: User = Depends(current_user), db: Session = Depends(get_db)):
+    saved = record_service.add_record(db, user, record.food_id, record.amount_grams, record.date)
+    schedule_meal_notifications(background_tasks, user.id, record.date, logged_at)
+    return saved
 
 
 @app.get("/summary/{record_date}")
@@ -93,3 +98,4 @@ def delete_record(record_id: int, user: User = Depends(current_user), db: Sessio
 
 
 app.include_router(build_friends_router(current_user))
+app.include_router(build_notifications_router(current_user))

@@ -20,6 +20,8 @@ REAL_DB = (PROJECT_ROOT / "tracker.db").resolve()
 TEST_DIR = Path(tempfile.mkdtemp(prefix="pro_tracker_tests_")).resolve()
 TEST_DB = TEST_DIR / "test.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB.as_posix()}"
+# Never send real push notifications from tests, even if the shell has the keys set.
+for _key in ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"): os.environ.pop(_key, None)
 
 # main.py serves frontend/ relative to the working directory.
 os.chdir(PROJECT_ROOT)
