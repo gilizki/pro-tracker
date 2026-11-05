@@ -4,8 +4,8 @@ from typing import List, Optional, Tuple
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from friends_models import STATUS_ACCEPTED, STATUS_PENDING, FriendInviteCode, Friendship
-from models import User
+from app.friends.models import STATUS_ACCEPTED, STATUS_PENDING, FriendInviteCode, Friendship
+from app.tracker.models import User
 
 
 def pair_key(user_a_id: int, user_b_id: int) -> str:

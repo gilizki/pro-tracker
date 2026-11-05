@@ -13,15 +13,15 @@ import pytest
 import pywebpush
 from sqlalchemy.exc import IntegrityError
 
-import database
+from app.core import database
 import main
-import notifications_push
-import notifications_routes
+from app.notifications import push as notifications_push
+from app.notifications import routes as notifications_routes
 from conftest import REAL_DB, TEST_DB
-from israel_time import TIME_ZONE, israel_now, tracker_day
-from notifications_config import BULLDOZER, DAILY_CAP, MIDNIGHT_MUNCH, PROTEIN_MACHINE
-from notifications_models import PushSubscription, SentNotification
-from notifications_repository import CAP_REACHED, DUPLICATE, RESERVED, SentNotificationRepository
+from app.core.israel_time import TIME_ZONE, israel_now, tracker_day
+from app.notifications.config import BULLDOZER, DAILY_CAP, MIDNIGHT_MUNCH, PROTEIN_MACHINE
+from app.notifications.models import PushSubscription, SentNotification
+from app.notifications.repository import CAP_REACHED, DUPLICATE, RESERVED, SentNotificationRepository
 from test_day_boundary import CASES, NODE, tracker_days
 from test_friends import befriend
 

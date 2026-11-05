@@ -1,4 +1,4 @@
-"""Database configuration only; ORM models live in models.py."""
+"""Database configuration only; ORM models live in app/tracker/models.py and the feature packages."""
 import os
 from pathlib import Path
 
@@ -9,7 +9,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 # Resolve the default database relative to this source file, rather than the
 # process working directory.  This means running Uvicorn from another folder
 # still opens the same application database.
-DEFAULT_DATABASE_PATH = Path(__file__).resolve().parent / "tracker.db"
+DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[2] / "tracker.db"  # project root
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DATABASE_PATH.as_posix()}")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -42,7 +42,7 @@ def migrate_legacy_user_passwords() -> None:
         # passwords immediately.  Importing here keeps the database module
         # independent of authentication services during normal startup.
         if "password" in column_names:
-            from security import PasswordHasher
+            from app.core.security import PasswordHasher
 
             legacy_users = connection.execute(
                 text("SELECT id, password FROM users WHERE password IS NOT NULL AND password_hash IS NULL")

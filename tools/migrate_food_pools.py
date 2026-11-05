@@ -212,7 +212,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     sys.path.insert(0, str(PROJECT_ROOT))
-    from database import DATABASE_URL  # same target as the app: $DATABASE_URL or the local tracker.db
+    from app.core.database import DATABASE_URL  # same target as the app: $DATABASE_URL or the local tracker.db
 
     try:
         migrate(DATABASE_URL, args.admin, dry_run=args.dry_run)

@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-import database
+from app.core import database
 from conftest import REAL_DB
-from models import Food, User, UserRecord
+from app.tracker.models import Food, User, UserRecord
 from tools.migrate_food_pools import MigrationError, main, migrate
 
 LEGACY_SCHEMA = """

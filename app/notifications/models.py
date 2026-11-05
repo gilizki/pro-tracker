@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import CheckConstraint, Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 
-from database import Base
-from notifications_config import ALL_TYPES
+from app.core.database import Base
+from app.notifications.config import ALL_TYPES
 
 
 def utc_now() -> datetime:

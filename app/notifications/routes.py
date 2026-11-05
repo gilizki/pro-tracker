@@ -14,17 +14,17 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-import database
-from database import get_db
-from israel_time import israel_now, tracker_day  # noqa: F401  (israel_now is re-exported for main.py)
-from models import User
-import notifications_models  # noqa: F401  (registers the tables before create_all)
-from notifications_repository import PushSubscriptionRepository
-from notifications_schemas import SubscriptionCreate, SubscriptionRemove
-from notifications_service import NotificationService
+from app.core import database
+from app.core.database import get_db
+from app.core.israel_time import israel_now, tracker_day  # noqa: F401  (israel_now is re-exported for main.py)
+from app.tracker.models import User
+from app.notifications import models as notifications_models  # noqa: F401  (registers the tables before create_all)
+from app.notifications.repository import PushSubscriptionRepository
+from app.notifications.schemas import SubscriptionCreate, SubscriptionRemove
+from app.notifications.service import NotificationService
 
 logger = logging.getLogger(__name__)
-FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"  # project root
 
 notification_service = NotificationService()
 subscriptions = PushSubscriptionRepository()

@@ -8,7 +8,7 @@ Runs AFTER a meal was saved, in a background task with its own DB session:
     friendship stops notifications immediately.
   * At most one notification per meal per recipient (``PRIORITY``), each type
     at most once per day per friend, and at most ``DAILY_CAP`` per recipient
-    per day, all enforced by database constraints (see notifications_models.py).
+    per day, all enforced by database constraints (see app/notifications/models.py).
 """
 import datetime as dt
 import logging
@@ -16,16 +16,16 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
-from friends_repository import FriendshipRepository
-from israel_time import TIME_ZONE, tracker_day
-from models import User
-from notifications_config import (
+from app.friends.repository import FriendshipRepository
+from app.core.israel_time import TIME_ZONE, tracker_day
+from app.tracker.models import User
+from app.notifications.config import (
     BULLDOZER, BULLDOZER_BEFORE_HOUR, BULLDOZER_KCAL, DAILY_CAP, MESSAGES, MIDNIGHT_MUNCH,
     MIDNIGHT_MUNCH_UNTIL_HOUR, PRIORITY, PROTEIN_MACHINE, PROTEIN_MACHINE_GRAMS, PUSH_TTL_SECONDS,
 )
-from notifications_push import GONE, WebPushSender
-from notifications_repository import CAP_REACHED, RESERVED, PushSubscriptionRepository, SentNotificationRepository
-from services import RecordService
+from app.notifications.push import GONE, WebPushSender
+from app.notifications.repository import CAP_REACHED, RESERVED, PushSubscriptionRepository, SentNotificationRepository
+from app.tracker.services import RecordService
 
 logger = logging.getLogger(__name__)
 

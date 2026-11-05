@@ -5,7 +5,7 @@ from typing import Dict, Iterable, List
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from notifications_models import PushSubscription, SentNotification
+from app.notifications.models import PushSubscription, SentNotification
 
 RESERVED = "reserved"
 DUPLICATE = "duplicate"      # this type was already sent today about this friend

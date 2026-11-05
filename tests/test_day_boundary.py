@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-import friends_service
+from app.friends import service as friends_service
 from conftest import PROJECT_ROOT
 
 NODE = shutil.which("node")

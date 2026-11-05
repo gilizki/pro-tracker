@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import database
+from app.core import database
 from conftest import REAL_DB, TEST_DB
 
 ALLOWED_STATUS_KEYS = {"user_id", "username", "date", "total_calories", "total_protein"}

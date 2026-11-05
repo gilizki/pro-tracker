@@ -5,9 +5,9 @@ from typing import Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from models import SUGGESTION_PENDING, SUGGESTION_REJECTED, Food, User
-from repositories import FoodRepository, SessionRepository, UserRecordRepository, UserRepository, normalize_food_name
-from security import PasswordHasher, TokenGenerator
+from app.tracker.models import SUGGESTION_PENDING, SUGGESTION_REJECTED, Food, User
+from app.tracker.repositories import FoodRepository, SessionRepository, UserRecordRepository, UserRepository, normalize_food_name
+from app.core.security import PasswordHasher, TokenGenerator
 
 
 class AuthenticationService:

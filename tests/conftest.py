@@ -29,7 +29,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def _assert_engine_is_temp_db() -> None:
-    import database
+    from app.core import database
 
     db_path = database.engine.url.database
     if not db_path or database.engine.url.get_backend_name() != "sqlite":
@@ -71,8 +71,8 @@ def make_user(client):
 @pytest.fixture
 def make_admin(client):
     """Signs up a fresh "test_admin_..." user and sets is_admin directly in the test DB."""
-    import database
-    from models import User
+    from app.core import database
+    from app.tracker.models import User
 
     def _make():
         response = client.post("/auth/signup", json={"username": f"test_admin_{uuid.uuid4().hex[:8]}", "password": "password123"})

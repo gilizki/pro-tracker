@@ -2,7 +2,7 @@
 from sqlalchemy import Boolean, CheckConstraint, Column, Date, Float, ForeignKey, Integer, String, false
 from sqlalchemy.orm import relationship
 
-from database import Base
+from app.core.database import Base
 
 # Food.suggestion_status values. NULL means "not suggested".
 SUGGESTION_PENDING = "pending"

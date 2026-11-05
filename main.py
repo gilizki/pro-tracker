@@ -11,12 +11,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from database import Base, engine, get_db, migrate_legacy_user_passwords, require_food_pools_schema
-from models import User  # Ensures every mapped model is registered before create_all.
-from schemas import Credentials, FoodCreate, FoodUpdate, RecordCreate
-from services import AuthenticationService, FoodService, RecordService, require_admin
-from friends_routes import build_friends_router  # Also registers the friends tables before create_all.
-from notifications_routes import build_notifications_router, israel_now, schedule_meal_notifications  # Also registers its tables.
+from app.core.database import Base, engine, get_db, migrate_legacy_user_passwords, require_food_pools_schema
+from app.tracker.models import User  # Ensures every mapped model is registered before create_all.
+from app.tracker.schemas import Credentials, FoodCreate, FoodUpdate, RecordCreate
+from app.tracker.services import AuthenticationService, FoodService, RecordService, require_admin
+from app.friends.routes import build_friends_router  # Also registers the friends tables before create_all.
+from app.notifications.routes import build_notifications_router, israel_now, schedule_meal_notifications  # Also registers its tables.
 
 Base.metadata.create_all(bind=engine)
 migrate_legacy_user_passwords()

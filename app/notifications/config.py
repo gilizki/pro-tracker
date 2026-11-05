@@ -2,7 +2,7 @@
 
 Change a threshold here and nothing else needs to change.
 """
-from israel_time import DAY_START_HOUR
+from app.core.israel_time import DAY_START_HOUR
 
 # ----- thresholds -----------------------------------------------------------
 PROTEIN_MACHINE_GRAMS = 120   # 💪 the day's protein total reaches this many grams

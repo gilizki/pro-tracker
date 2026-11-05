@@ -57,15 +57,22 @@ The project uses a layered architecture to keep API controllers, business logic,
 ## 📂 Structure
 
 ```text
-├── main.py          # API & routes
-├── models.py        # Database models
-├── schemas.py       # Validation & DTOs
-├── services.py      # Business logic
-├── repositories.py  # Database access
-├── database.py      # DB configuration
-├── security.py      # Authentication
-└── frontend/
-    └── index.html   # Web application
+├── main.py                 # FastAPI app & core routes (entry point)
+├── app/
+│   ├── core/               # Shared infrastructure
+│   │   ├── database.py     #   DB configuration
+│   │   ├── security.py     #   Password hashing & tokens
+│   │   └── israel_time.py  #   Tracker-day rule (02:00–01:59 Israel time)
+│   ├── tracker/            # Users, foods & meal records
+│   │   ├── models.py       #   Database models
+│   │   ├── schemas.py      #   Validation & DTOs
+│   │   ├── services.py     #   Business logic
+│   │   └── repositories.py #   Database access
+│   ├── friends/            # Friends feature (models, schemas, repository, service, routes)
+│   └── notifications/      # Push notifications (config, models, push, repository, service, routes)
+├── frontend/               # Web application (index.html, JS, PWA files)
+├── tests/                  # pytest suite
+└── tools/                  # One-off scripts (VAPID keys, migrations)
 ```
 
 ---
@@ -122,7 +129,7 @@ Friends get a push notification on their phone when you:
 - 🚜 **בולדוזר**: pass 2000 kcal before 20:00
 
 Each type is sent at most once per day per friend, one per meal, and at most 2 per day in total.
-Thresholds and texts live in `notifications_config.py`. Tap "הפעל התראות" in the app to enable
+Thresholds and texts live in `app/notifications/config.py`. Tap "הפעל התראות" in the app to enable
 (on iPhone, add the site to the Home Screen and open it from there first).
 
 Push needs three environment variables (never commit them): `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`

@@ -7,7 +7,7 @@ from typing import Optional
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from models import SUGGESTION_PENDING, SUGGESTION_REJECTED, AuthSession, Food, User, UserRecord
+from app.tracker.models import SUGGESTION_PENDING, SUGGESTION_REJECTED, AuthSession, Food, User, UserRecord
 
 
 def normalize_food_name(name: str) -> str:

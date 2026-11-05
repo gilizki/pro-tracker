@@ -19,11 +19,11 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from friends_models import STATUS_ACCEPTED, STATUS_PENDING
-from friends_repository import FriendshipRepository, InviteCodeRepository
-from models import User
-from repositories import UserRepository
-from services import RecordService
+from app.friends.models import STATUS_ACCEPTED, STATUS_PENDING
+from app.friends.repository import FriendshipRepository, InviteCodeRepository
+from app.tracker.models import User
+from app.tracker.repositories import UserRepository
+from app.tracker.services import RecordService
 
 INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I look-alikes
 INVITE_CODE_LENGTH = 8

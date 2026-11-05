@@ -1,6 +1,6 @@
 """Friends feature tables. Additive only: no existing table or model is changed.
 
-Plain foreign keys are used (no relationships added to ``User``) so models.py
+Plain foreign keys are used (no relationships added to ``User``) so app/tracker/models.py
 stays untouched.  Importing this module registers the tables with ``Base`` so
 the existing ``create_all`` call creates them on startup.
 """
@@ -8,7 +8,7 @@ from datetime import datetime
 
 from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, String
 
-from database import Base
+from app.core.database import Base
 
 STATUS_PENDING = "pending"
 STATUS_ACCEPTED = "accepted"

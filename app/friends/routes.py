@@ -10,10 +10,10 @@ from typing import Callable, List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from database import get_db
-from friends_schemas import FriendRequestCreate, FriendRequestResult, FriendStatus, InviteCode, PendingRequests
-from friends_service import FriendService, resolve_friend_date
-from models import User
+from app.core.database import get_db
+from app.friends.schemas import FriendRequestCreate, FriendRequestResult, FriendStatus, InviteCode, PendingRequests
+from app.friends.service import FriendService, resolve_friend_date
+from app.tracker.models import User
 
 friend_service = FriendService()
 
