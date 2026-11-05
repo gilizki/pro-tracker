@@ -4,9 +4,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
-from models import AuthSession, Food, User, UserRecord
+from models import SUGGESTION_PENDING, SUGGESTION_REJECTED, AuthSession, Food, User, UserRecord
+
+
+def normalize_food_name(name: str) -> str:
+    """Comparison key for duplicate detection: case- and whitespace-insensitive."""
+    return " ".join(name.split()).casefold()
 
 
 class UserRepository:
@@ -38,15 +44,76 @@ class SessionRepository:
 
 
 class FoodRepository:
-    def list_all(self, db: Session) -> list[Food]:
-        return db.query(Food).order_by(Food.name).all()
+    """Every read that serves a user is scoped by ``_visible_to``: global foods
+    plus that user's own personal foods. Other users' personal foods are never
+    returned, so callers cannot accidentally leak or modify them."""
 
-    def find_by_id(self, db: Session, food_id: int) -> Optional[Food]:
-        return db.get(Food, food_id)
+    @staticmethod
+    def _visible_to(user_id: int):
+        return or_(Food.owner_id.is_(None), Food.owner_id == user_id)
 
-    def create(self, db: Session, name: str, calories: float, protein: float) -> Food:
-        food = Food(name=name, calories=calories, protein=protein)
+    def list_visible(self, db: Session, user_id: int) -> list[Food]:
+        return db.query(Food).filter(self._visible_to(user_id)).order_by(Food.name, Food.id).all()
+
+    def find_visible(self, db: Session, food_id: int, user_id: int) -> Optional[Food]:
+        return db.query(Food).filter(Food.id == food_id, self._visible_to(user_id)).first()
+
+    def find_global_by_name(self, db: Session, name: str, exclude_id: Optional[int] = None) -> Optional[Food]:
+        # Compared in Python: SQL lower() differs between SQLite and PostgreSQL for
+        # non-ASCII text, and the global pool is small.
+        key = normalize_food_name(name)
+        for food in db.query(Food).filter(Food.owner_id.is_(None)).order_by(Food.id):
+            if food.id != exclude_id and normalize_food_name(food.name) == key:
+                return food
+        return None
+
+    def list_pending(self, db: Session) -> list[Food]:
+        return (
+            db.query(Food)
+            .options(joinedload(Food.owner))
+            .filter(Food.owner_id.isnot(None), Food.suggestion_status == SUGGESTION_PENDING)
+            .order_by(Food.id)
+            .all()
+        )
+
+    def find_pending(self, db: Session, food_id: int) -> Optional[Food]:
+        return (
+            db.query(Food)
+            .filter(Food.id == food_id, Food.owner_id.isnot(None), Food.suggestion_status == SUGGESTION_PENDING)
+            .first()
+        )
+
+    def has_records(self, db: Session, food_id: int) -> bool:
+        return db.query(UserRecord.id).filter(UserRecord.food_id == food_id).first() is not None
+
+    def create(self, db: Session, name: str, calories: float, protein: float,
+               owner_id: Optional[int] = None, suggestion_status: Optional[str] = None) -> Food:
+        food = Food(name=name, calories=calories, protein=protein, owner_id=owner_id, suggestion_status=suggestion_status)
         db.add(food)
+        db.commit()
+        db.refresh(food)
+        return food
+
+    def update(self, db: Session, food: Food, name: str, calories: float, protein: float,
+               suggestion_status: Optional[str]) -> Food:
+        food.name, food.calories, food.protein, food.suggestion_status = name, calories, protein, suggestion_status
+        db.commit()
+        db.refresh(food)
+        return food
+
+    def delete(self, db: Session, food: Food) -> None:
+        db.delete(food)
+        db.commit()
+
+    def approve(self, db: Session, food: Food) -> Food:
+        """Moves a suggestion into the global pool in place; the id is unchanged."""
+        food.owner_id, food.suggestion_status = None, None
+        db.commit()
+        db.refresh(food)
+        return food
+
+    def reject(self, db: Session, food: Food) -> Food:
+        food.suggestion_status = SUGGESTION_REJECTED
         db.commit()
         db.refresh(food)
         return food

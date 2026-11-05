@@ -54,6 +54,28 @@ def migrate_legacy_user_passwords() -> None:
                 )
 
 
+FOOD_POOLS_COLUMNS = {"users": {"is_admin"}, "foods": {"owner_id", "suggestion_status"}}
+
+
+def require_food_pools_schema() -> None:
+    """Fail fast if the database predates the global/personal food pools.
+
+    This only checks; it never alters the database.  The migration is a separate,
+    reviewable script: tools/migrate_food_pools.py.
+    """
+    inspector = inspect(engine)
+    missing = [
+        f"{table}.{column}"
+        for table, columns in FOOD_POOLS_COLUMNS.items()
+        for column in sorted(columns - {c["name"] for c in inspector.get_columns(table)})
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Database schema is out of date (missing {', '.join(missing)}). "
+            "Back it up, then run: python tools/migrate_food_pools.py --admin <username>"
+        )
+
+
 def get_db():
     """FastAPI dependency that scopes one SQLAlchemy session to a request."""
     db = SessionLocal()

@@ -2,16 +2,25 @@
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     username VARCHAR(64) NOT NULL UNIQUE,
-    password_hash VARCHAR(256) NOT NULL
+    password_hash VARCHAR(256) NOT NULL,
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE
 );
 
--- This is global, deliberately not owned by a user.
+-- owner_id NULL = global food (visible to everyone, managed by admins).
+-- owner_id set   = personal food, visible only to that user.
+-- suggestion_status: NULL, 'pending' (suggested for the global pool) or 'rejected'.
+-- Approving a suggestion clears owner_id in place, so the food id never changes.
 CREATE TABLE foods (
     id INTEGER PRIMARY KEY,
     name VARCHAR(128) NOT NULL,
     calories FLOAT NOT NULL,
-    protein FLOAT NOT NULL
+    protein FLOAT NOT NULL,
+    owner_id INTEGER REFERENCES users(id),
+    suggestion_status VARCHAR(16),
+    CONSTRAINT ck_foods_suggestion_status CHECK (suggestion_status IS NULL OR suggestion_status IN ('pending', 'rejected'))
 );
+
+CREATE INDEX ix_foods_owner_id ON foods(owner_id);
 
 -- This table isolates every user's personal history.
 CREATE TABLE user_records (

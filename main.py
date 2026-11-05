@@ -11,15 +11,16 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from database import Base, engine, get_db, migrate_legacy_user_passwords
+from database import Base, engine, get_db, migrate_legacy_user_passwords, require_food_pools_schema
 from models import User  # Ensures every mapped model is registered before create_all.
-from schemas import Credentials, FoodCreate, RecordCreate
-from services import AuthenticationService, FoodService, RecordService
+from schemas import Credentials, FoodCreate, FoodUpdate, RecordCreate
+from services import AuthenticationService, FoodService, RecordService, require_admin
 from friends_routes import build_friends_router  # Also registers the friends tables before create_all.
 from notifications_routes import build_notifications_router, israel_now, schedule_meal_notifications  # Also registers its tables.
 
 Base.metadata.create_all(bind=engine)
 migrate_legacy_user_passwords()
+require_food_pools_schema()  # checks only; run tools/migrate_food_pools.py to upgrade
 
 app = FastAPI(title="Pro Tracker")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
@@ -38,6 +39,15 @@ def current_user(token: str = Depends(bearer_token), db: Session = Depends(get_d
     return auth_service.current_user(db, token)
 
 
+def admin_user(user: User = Depends(current_user)) -> User:
+    require_admin(user)  # the service methods check again (defense in depth)
+    return user
+
+
+def user_dict(user: User) -> dict:
+    return {"id": user.id, "username": user.username, "is_admin": bool(user.is_admin)}
+
+
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     with open(os.path.join("frontend", "index.html"), encoding="utf-8") as page:
@@ -47,13 +57,13 @@ def read_root():
 @app.post("/auth/signup")
 def sign_up(credentials: Credentials, db: Session = Depends(get_db)):
     user, token = auth_service.sign_up(db, credentials.username, credentials.password)
-    return {"token": token, "user": {"id": user.id, "username": user.username}}
+    return {"token": token, "user": user_dict(user)}
 
 
 @app.post("/auth/login")
 def log_in(credentials: Credentials, db: Session = Depends(get_db)):
     user, token = auth_service.log_in(db, credentials.username, credentials.password)
-    return {"token": token, "user": {"id": user.id, "username": user.username}}
+    return {"token": token, "user": user_dict(user)}
 
 
 @app.post("/auth/logout")
@@ -64,17 +74,47 @@ def log_out(token: str = Depends(bearer_token), db: Session = Depends(get_db)):
 
 @app.get("/auth/me")
 def me(user: User = Depends(current_user)):
-    return {"id": user.id, "username": user.username}
+    return user_dict(user)
 
 
 @app.get("/foods/")
-def get_all_foods(_: User = Depends(current_user), db: Session = Depends(get_db)):
-    return food_service.list_foods(db)
+def get_all_foods(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Global foods plus the caller's own personal foods."""
+    return food_service.list_foods(db, user)
 
 
 @app.post("/foods/")
-def create_food(food: FoodCreate, _: User = Depends(current_user), db: Session = Depends(get_db)):
-    return food_service.create_food(db, food.name, food.calories, food.protein)
+def create_food(food: FoodCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return food_service.create_food(db, user, food.name, food.calories, food.protein,
+                                    suggest=food.suggest, is_global=food.is_global, allow_duplicate=food.allow_duplicate)
+
+
+@app.put("/foods/{food_id}")
+def update_food(food_id: int, food: FoodUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return food_service.update_food(db, user, food_id, food.name, food.calories, food.protein,
+                                    suggest=food.suggest, allow_duplicate=food.allow_duplicate)
+
+
+@app.delete("/foods/{food_id}")
+def delete_food(food_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    food_service.delete_food(db, user, food_id)
+    return {"status": "deleted"}
+
+
+@app.get("/admin/suggestions")
+def list_suggestions(admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return food_service.list_suggestions(db, admin)
+
+
+@app.post("/admin/suggestions/{food_id}/approve")
+def approve_suggestion(food_id: int, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return food_service.approve_suggestion(db, admin, food_id)
+
+
+@app.post("/admin/suggestions/{food_id}/reject")
+def reject_suggestion(food_id: int, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    food_service.reject_suggestion(db, admin, food_id)
+    return {"status": "rejected"}
 
 
 @app.post("/records/")

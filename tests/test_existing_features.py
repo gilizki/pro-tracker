@@ -44,7 +44,8 @@ def test_foods_records_summary_and_delete(client, make_user):
 
     food = client.post("/foods/", json={"name": f"  {name}  ", "calories": 250, "protein": 8}, headers=headers)
     assert food.status_code == 200 and food.json()["name"] == name
-    assert any(f["name"] == name for f in client.get("/foods/", headers=other_headers).json())  # shared catalogue
+    # A user-added food now goes to their personal pool, not a shared catalogue.
+    assert not any(f["name"] == name for f in client.get("/foods/", headers=other_headers).json())
 
     record = client.post("/records/", json={"food_id": food.json()["id"], "amount_grams": 40, "date": day}, headers=headers)
     assert record.status_code == 200

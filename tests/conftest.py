@@ -66,3 +66,20 @@ def make_user(client):
         data = response.json()
         return data["user"], {"Authorization": f"Bearer {data['token']}"}
     return _make
+
+
+@pytest.fixture
+def make_admin(client):
+    """Signs up a fresh "test_admin_..." user and sets is_admin directly in the test DB."""
+    import database
+    from models import User
+
+    def _make():
+        response = client.post("/auth/signup", json={"username": f"test_admin_{uuid.uuid4().hex[:8]}", "password": "password123"})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        with database.SessionLocal() as db:
+            db.get(User, data["user"]["id"]).is_admin = True
+            db.commit()
+        return data["user"], {"Authorization": f"Bearer {data['token']}"}
+    return _make

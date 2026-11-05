@@ -17,7 +17,14 @@
     .row { display: flex; gap: 10px; } .row > * { min-width: 0; } .user-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
     .user-bar button { width: auto; margin: 0; padding: 7px 10px; } .new-food { background: #f8f9fa; border: 2px dashed #007aff; padding: 14px; border-radius: 10px; margin: 12px 0; }
     .meal { display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; background: #fafafa; padding: 10px; border-radius: 8px; margin-top: 8px; }
-    .meal small { color: #666; } a { color: #007aff; cursor: pointer; } #food-search { margin-bottom: 12px; }
+    .meal small { color: #666; } a { color: #007aff; cursor: pointer; } #food-search { margin-bottom: 4px; }
+    .legend { font-size: 13px; color: #666; margin: 0 0 12px; } .check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 15px; cursor: pointer; }
+    .check input { width: auto; margin: 0; } .pool { margin-top: 20px; border-top: 1px solid #eee; padding-top: 12px; }
+    .pool > summary { cursor: pointer; font-size: 18px; font-weight: 700; padding: 6px 0; list-style-position: inside; }
+    .actions { display: flex; gap: 6px; } .actions button { width: auto; margin: 0; padding: 7px 10px; } button.ok { background: #34c759; }
+    .tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 10px; margin-inline-start: 4px; background: #eee; color: #555; }
+    .tag.global { background: #e3f2fd; color: #0277bd; } .tag.personal { background: #f3e8ff; color: #7b2cbf; } .tag.pending { background: #fff4d6; color: #a86b00; } .tag.rejected { background: #ffe3e0; color: #c92a20; }
+    .warn { color: #a86b00; font-size: 13px; } .empty { color: #666; font-size: 14px; margin: 4px 0; }
   </style>
 </head>
 <body>
@@ -48,26 +55,55 @@
       <div class="summary"><span>🔥 קלוריות: <b id="total-cal">0</b></span><span>💪 חלבון: <b id="total-pro">0</b>g</span></div>
       <input id="food-search" list="food-options" placeholder="חפש או בחר מאכל...">
       <datalist id="food-options"></datalist>
+      <p class="legend"><span class="tag global">🌍 כללי</span> מאגר משותף לכולם · <span class="tag personal">👤 אישי</span> רק אתה רואה</p>
       <input id="amount" type="number" min="1" placeholder="כמות בגרמים">
       <button id="add-meal">הוסף ארוחה</button>
       <div id="new-food" class="new-food hidden">
         <h2>מאכל חדש</h2>
         <input id="new-food-name" readonly>
         <div class="row"><input id="new-food-cal" type="number" min="0" placeholder="קלוריות ל-100ג׳"><input id="new-food-pro" type="number" min="0" placeholder="חלבון ל-100ג׳"></div>
-        <button id="save-food">שמור למאגר המשותף</button>
+        <label class="check"><input id="new-food-suggest" type="checkbox"> הצע לכולם (יתווסף למאגר הכללי אחרי אישור מנהל)</label>
+        <label class="check admin-only hidden"><input id="new-food-global" type="checkbox"> הוסף ישירות למאגר הכללי (מנהל)</label>
+        <button id="save-food">שמור למאגר האישי שלי</button>
       </div>
       <div id="meal-list"></div>
       <p id="tracker-error" class="error"></p>
+
+      <details id="my-foods" class="pool">
+        <summary>המאכלים שלי 👤</summary>
+        <div id="edit-food" class="new-food hidden">
+          <h2>עריכת מאכל</h2>
+          <input id="edit-food-name" placeholder="שם המאכל">
+          <div class="row"><input id="edit-food-cal" type="number" min="0" placeholder="קלוריות ל-100ג׳"><input id="edit-food-pro" type="number" min="0" placeholder="חלבון ל-100ג׳"></div>
+          <label id="edit-food-suggest-row" class="check"><input id="edit-food-suggest" type="checkbox"> הצע לכולם</label>
+          <div class="row"><button id="edit-food-save">שמור</button><button id="edit-food-cancel" class="secondary">ביטול</button></div>
+        </div>
+        <div id="my-food-list"></div>
+        <p id="my-foods-error" class="error"></p>
+      </details>
+
+      <details id="admin-panel" class="pool hidden">
+        <summary>הצעות ממתינות 🛡️</summary>
+        <div id="suggestion-list"></div>
+        <p id="admin-error" class="error"></p>
+      </details>
     </section>
   </main>
 
   <script src="/frontend/day.js"></script>
   <script>
-    const state = { token: localStorage.getItem('proTrackerToken'), foods: [] };
+    const state = { token: localStorage.getItem('proTrackerToken'), foods: [], user: null, editing: null };
     const $ = id => document.getElementById(id);
     const setError = (id, message = '') => $(id).textContent = message;
     const show = (id, visible) => $(id).classList.toggle('hidden', !visible);
     const today = () => trackerDay();
+    const ERROR_MESSAGES = {
+      duplicate_global: 'כבר קיים מאכל בשם הזה במאגר הכללי.',
+      duplicate_global_suggestion: 'כבר קיים מאכל בשם הזה במאגר הכללי, ולכן אי אפשר להציע אותו לכולם.',
+      duplicate_global_blocked: 'כבר קיים מאכל בשם הזה במאגר הכללי.',
+      edit_before_resuggest: 'ההצעה נדחתה. ערוך את המאכל לפני שתציע אותו שוב.',
+      food_in_use: 'המאכל מופיע ברשומות ארוחה ולכן אי אפשר למחוק אותו.',
+    };
 
     async function request(path, options = {}) {
       const headers = { ...(options.headers || {}) };
@@ -76,14 +112,40 @@
       const response = await fetch(path, { ...options, headers });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        const detail = typeof body.detail === 'string' ? body.detail : '';
-        throw new Error(detail || `שגיאת שרת (${response.status}). נסה שוב בעוד רגע.`);
+        const detail = body.detail;
+        const message = typeof detail === 'string' ? detail : (detail && (ERROR_MESSAGES[detail.code] || detail.message)) || '';
+        const error = new Error(message || `שגיאת שרת (${response.status}). נסה שוב בעוד רגע.`);
+        error.status = response.status; error.code = detail && detail.code;
+        throw error;
       }
       return response.status === 204 ? null : response.json();
     }
 
+    // Global and personal foods can share a name, so the list shows (and matches) a label with the pool's icon.
+    const foodLabel = food => `${food.name} ${food.scope === 'global' ? '🌍' : '👤'}`;
+    const normalize = text => text.trim().split(/\s+/).join(' ').toLowerCase();
+    function matchFoods(text) {
+      const exact = state.foods.find(food => foodLabel(food) === text);
+      return exact ? [exact] : state.foods.filter(food => normalize(food.name) === normalize(text));
+    }
+    function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
+    function button(text, className, onclick) { const node = element('button', className, text); node.onclick = onclick; return node; }
+    function foodTags(food) {
+      const tags = [food.scope === 'global' ? element('span', 'tag global', '🌍 כללי') : element('span', 'tag personal', '👤 אישי')];
+      if (food.suggestion_status === 'pending') tags.push(element('span', 'tag pending', 'ממתין לאישור'));
+      if (food.suggestion_status === 'rejected') tags.push(element('span', 'tag rejected', 'ההצעה נדחתה'));
+      return tags;
+    }
+    // A personal copy of a global name is allowed after the user confirms; suggestions of global names are blocked by the server.
+    const confirmDuplicate = error => error.code === 'duplicate_global' && confirm('כבר קיים מאכל בשם הזה במאגר הכללי 🌍. לשמור בכל זאת עותק אישי?');
+
     function displayAuth(signup = false) { show('auth-view', true); show('tracker-view', false); show('login-form', !signup); show('signup-form', signup); setError('auth-error'); }
-    function displayTracker(user) { $('username').textContent = user.username; show('auth-view', false); show('tracker-view', true); $('date-picker').value = today(); loadFoods().then(loadSummary).catch(showTrackerError); }
+    function displayTracker(user) {
+      state.user = user; $('username').textContent = user.username; show('auth-view', false); show('tracker-view', true); $('date-picker').value = today();
+      show('admin-panel', !!user.is_admin); document.querySelectorAll('.admin-only').forEach(node => node.classList.toggle('hidden', !user.is_admin));
+      state.editing = null; show('edit-food', false);
+      loadFoods().then(loadSummary).then(loadSuggestions).catch(showTrackerError);
+    }
     function showTrackerError(error) { setError('tracker-error', error.message); }
 
     async function authenticate(endpoint, usernameId, passwordId) {
@@ -97,7 +159,12 @@
     async function loadFoods() {
       state.foods = await request('/foods/');
       const list = $('food-options'); list.replaceChildren();
-      state.foods.forEach(food => { const option = document.createElement('option'); option.value = food.name; list.append(option); });
+      state.foods.forEach(food => {
+        const option = document.createElement('option'); option.value = foodLabel(food);
+        option.label = food.scope === 'global' ? 'מאגר כללי' : (food.suggestion_status === 'pending' ? 'אישי · ממתין לאישור' : 'אישי');
+        list.append(option);
+      });
+      renderMyFoods();
     }
 
     async function loadSummary() {
@@ -116,23 +183,103 @@
     async function addMeal() {
       setError('tracker-error'); const name = $('food-search').value.trim(), amount = Number($('amount').value);
       if (!name || !amount) return showTrackerError(new Error('יש לבחור מאכל וכמות.'));
-      const food = state.foods.find(item => item.name === name);
-      if (!food) { $('new-food-name').value = name; show('new-food', true); return; }
+      const matches = matchFoods(name);
+      if (matches.length > 1) return showTrackerError(new Error('יש כמה מאכלים בשם הזה – בחר מהרשימה (🌍 כללי או 👤 אישי).'));
+      const food = matches[0];
+      if (!food) { $('new-food-name').value = name; $('new-food-suggest').checked = false; $('new-food-global').checked = false; show('new-food', true); return; }
       try { await request('/records/', { method: 'POST', body: JSON.stringify({ food_id: food.id, amount_grams: amount, date: $('date-picker').value }) }); $('food-search').value = ''; $('amount').value = ''; await loadSummary(); } catch (error) { showTrackerError(error); }
     }
 
-    async function saveFood() {
+    async function saveFood(allowDuplicate = false) {
+      setError('tracker-error');
+      const body = { name: $('new-food-name').value, calories: Number($('new-food-cal').value), protein: Number($('new-food-pro').value),
+                     suggest: $('new-food-suggest').checked, is_global: !!(state.user && state.user.is_admin) && $('new-food-global').checked, allow_duplicate: allowDuplicate };
       try {
-        const food = await request('/foods/', { method: 'POST', body: JSON.stringify({ name: $('new-food-name').value, calories: Number($('new-food-cal').value), protein: Number($('new-food-pro').value) }) });
-        await loadFoods(); show('new-food', false); $('food-search').value = food.name; $('new-food-cal').value = ''; $('new-food-pro').value = ''; await addMeal();
-      } catch (error) { showTrackerError(error); }
+        const food = await request('/foods/', { method: 'POST', body: JSON.stringify(body) });
+        await loadFoods(); show('new-food', false); $('food-search').value = foodLabel(food); $('new-food-cal').value = ''; $('new-food-pro').value = ''; await addMeal();
+        if (food.suggestion_status === 'pending') await loadSuggestions();
+      } catch (error) {
+        if (confirmDuplicate(error)) return saveFood(true);
+        showTrackerError(error);
+      }
+    }
+
+    function renderMyFoods() {
+      const admin = !!(state.user && state.user.is_admin);
+      $('my-foods').querySelector('summary').textContent = admin ? 'ניהול מאכלים 👤🌍' : 'המאכלים שלי 👤';
+      const list = $('my-food-list'); list.replaceChildren();
+      const editable = state.foods.filter(food => food.can_edit);  // own personal foods; admins also get the global ones
+      if (!editable.length) { list.append(element('p', 'empty', 'עוד לא הוספת מאכלים אישיים.')); return; }
+      editable.forEach(food => {
+        const item = element('div', 'meal'), text = element('div');
+        text.append(element('strong', '', food.name), ...foodTags(food), element('br'), element('small', '', `${food.calories} קל׳ · ${food.protein}g חלבון ל-100ג׳`));
+        const actions = element('div', 'actions');
+        actions.append(button('ערוך', 'secondary', () => startEdit(food)), button('מחק', 'danger', () => deleteFood(food)));
+        item.append(text, actions); list.append(item);
+      });
+    }
+
+    function startEdit(food) {
+      state.editing = food; setError('my-foods-error');
+      $('edit-food-name').value = food.name; $('edit-food-cal').value = food.calories; $('edit-food-pro').value = food.protein;
+      $('edit-food-suggest').checked = food.suggestion_status === 'pending'; show('edit-food-suggest-row', food.scope === 'personal');
+      show('edit-food', true); $('edit-food-name').focus();
+    }
+
+    async function saveEdit(allowDuplicate = false) {
+      const food = state.editing; if (!food) return; setError('my-foods-error');
+      const body = { name: $('edit-food-name').value, calories: Number($('edit-food-cal').value), protein: Number($('edit-food-pro').value), allow_duplicate: allowDuplicate };
+      if (food.scope === 'personal') body.suggest = $('edit-food-suggest').checked;
+      try {
+        await request(`/foods/${food.id}`, { method: 'PUT', body: JSON.stringify(body) });
+        state.editing = null; show('edit-food', false); await loadFoods(); await loadSummary(); await loadSuggestions();
+      } catch (error) {
+        if (confirmDuplicate(error)) return saveEdit(true);
+        setError('my-foods-error', error.message);
+      }
+    }
+
+    async function deleteFood(food) {
+      if (!confirm(`למחוק את "${food.name}"?`)) return; setError('my-foods-error');
+      try {
+        await request(`/foods/${food.id}`, { method: 'DELETE' });
+        if (state.editing && state.editing.id === food.id) { state.editing = null; show('edit-food', false); }
+        await loadFoods(); await loadSuggestions();
+      } catch (error) { setError('my-foods-error', error.message); }
+    }
+
+    async function loadSuggestions() {
+      if (!state.user || !state.user.is_admin) return;
+      const suggestions = await request('/admin/suggestions');
+      $('admin-panel').querySelector('summary').textContent = `הצעות ממתינות 🛡️ (${suggestions.length})`;
+      const list = $('suggestion-list'); list.replaceChildren();
+      if (!suggestions.length) { list.append(element('p', 'empty', 'אין הצעות ממתינות.')); return; }
+      suggestions.forEach(food => {
+        const item = element('div', 'meal'), text = element('div');
+        text.append(element('strong', '', food.name), element('br'), element('small', '', `${food.calories} קל׳ · ${food.protein}g חלבון ל-100ג׳ · הוצע ע״י ${food.owner_username}`));
+        if (food.duplicate_of_global_id) text.append(element('br'), element('span', 'warn', '⚠️ כבר קיים מאכל כללי בשם הזה – אי אפשר לאשר.'));
+        const actions = element('div', 'actions');
+        const approve = button('אשר', 'ok', () => decideSuggestion(food.id, 'approve')); approve.disabled = !!food.duplicate_of_global_id;
+        actions.append(approve, button('דחה', 'danger', () => decideSuggestion(food.id, 'reject')));
+        item.append(text, actions); list.append(item);
+      });
+    }
+
+    async function decideSuggestion(id, action) {
+      setError('admin-error');
+      try { await request(`/admin/suggestions/${id}/${action}`, { method: 'POST' }); await loadFoods(); await loadSuggestions(); }
+      catch (error) { setError('admin-error', error.message); }
     }
 
     async function deleteRecord(id) { if (!confirm('למחוק את הארוחה?')) return; try { await request(`/records/${id}`, { method: 'DELETE' }); await loadSummary(); } catch (error) { showTrackerError(error); } }
     $('show-signup').onclick = () => displayAuth(true); $('show-login').onclick = () => displayAuth(false);
     $('login-button').onclick = () => authenticate('/auth/login', 'login-username', 'login-password'); $('signup-button').onclick = () => authenticate('/auth/signup', 'signup-username', 'signup-password');
-    $('add-meal').onclick = addMeal; $('save-food').onclick = saveFood; $('date-picker').onchange = () => loadSummary().catch(showTrackerError);
-    $('logout').onclick = async () => { try { await request('/auth/logout', { method: 'POST' }); } finally { localStorage.removeItem('proTrackerToken'); state.token = null; displayAuth(); } };
+    $('add-meal').onclick = addMeal; $('save-food').onclick = () => saveFood(); $('date-picker').onchange = () => loadSummary().catch(showTrackerError);
+    $('new-food-suggest').onchange = () => { if ($('new-food-suggest').checked) $('new-food-global').checked = false; };
+    $('new-food-global').onchange = () => { if ($('new-food-global').checked) $('new-food-suggest').checked = false; };
+    $('edit-food-save').onclick = () => saveEdit(); $('edit-food-cancel').onclick = () => { state.editing = null; show('edit-food', false); };
+    $('admin-panel').ontoggle = () => { if ($('admin-panel').open) loadSuggestions().catch(error => setError('admin-error', error.message)); };
+    $('logout').onclick = async () => { try { await request('/auth/logout', { method: 'POST' }); } finally { localStorage.removeItem('proTrackerToken'); state.token = null; state.user = null; displayAuth(); } };
     (async () => { if (!state.token) return displayAuth(); try { displayTracker(await request('/auth/me')); } catch (_) { localStorage.removeItem('proTrackerToken'); state.token = null; displayAuth(); } })();
   </script>
   <script src="/frontend/friends.js"></script>
