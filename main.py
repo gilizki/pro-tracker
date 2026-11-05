@@ -11,7 +11,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from app.core.database import Base, engine, get_db, migrate_legacy_user_passwords, require_food_pools_schema
+from app.core.database import (Base, engine, get_db, migrate_legacy_user_passwords, require_food_pools_schema,
+                               require_sent_notifications_schema)
 from app.tracker.models import User  # Ensures every mapped model is registered before create_all.
 from app.tracker.schemas import Credentials, FoodCreate, FoodUpdate, RecordCreate
 from app.tracker.services import AuthenticationService, FoodService, RecordService, require_admin
@@ -21,6 +22,7 @@ from app.notifications.routes import build_notifications_router, israel_now, sch
 Base.metadata.create_all(bind=engine)
 migrate_legacy_user_passwords()
 require_food_pools_schema()  # checks only; run tools/migrate_food_pools.py to upgrade
+require_sent_notifications_schema()  # checks only; run tools/migrate_sent_notifications.py to upgrade
 
 app = FastAPI(title="Pro Tracker")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
@@ -128,7 +130,7 @@ def create_record(record: RecordCreate, background_tasks: BackgroundTasks,
                   logged_at: datetime = Depends(israel_now),  # first dependency: resolved before auth
                   user: User = Depends(current_user), db: Session = Depends(get_db)):
     saved = record_service.add_record(db, user, record.food_id, record.amount_grams, record.date)
-    schedule_meal_notifications(background_tasks, user.id, record.date, logged_at)
+    schedule_meal_notifications(background_tasks, user.id, record.date, logged_at, saved.id)
     return saved
 
 

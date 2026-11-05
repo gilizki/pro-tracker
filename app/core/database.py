@@ -76,6 +76,22 @@ def require_food_pools_schema() -> None:
         )
 
 
+def require_sent_notifications_schema() -> None:
+    """Fail fast if sent_notifications still has the old max-2-per-day shape.
+
+    This only checks; it never alters the database.  The migration is a separate,
+    reviewable script: tools/migrate_sent_notifications.py.
+    """
+    from app.notifications.models import outdated_sent_notifications_schema  # lazy: that module imports Base from here
+
+    problems = outdated_sent_notifications_schema(inspect(engine))
+    if problems:
+        raise RuntimeError(
+            f"Database schema is out of date (sent_notifications: {', '.join(problems)}). "
+            "Back it up, then run: python tools/migrate_sent_notifications.py"
+        )
+
+
 def get_db():
     """FastAPI dependency that scopes one SQLAlchemy session to a request."""
     db = SessionLocal()

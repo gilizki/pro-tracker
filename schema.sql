@@ -74,19 +74,17 @@ CREATE TABLE push_subscriptions (
 
 CREATE INDEX ix_push_subscriptions_user_id ON push_subscriptions(user_id);
 
--- Notifications sent about a friend (never shown in the app). day = tracker day.
--- Once per type per friend per day, and at most DAILY_CAP (slots 1..2) per recipient per day.
+-- Notifications sent (never shown in the app). day = tracker day.
+-- Each type at most once per tracker day per recipient, whichever friend triggered it.
+-- No CHECK on type: the valid types live in app/notifications/config.py.
+-- Older databases: python tools/migrate_sent_notifications.py
 CREATE TABLE sent_notifications (
     id INTEGER PRIMARY KEY,
     recipient_id INTEGER NOT NULL REFERENCES users(id),
     friend_id INTEGER NOT NULL REFERENCES users(id),
     type VARCHAR(32) NOT NULL,
     day DATE NOT NULL,
-    slot INTEGER NOT NULL,
     created_at DATETIME NOT NULL,
-    CONSTRAINT uq_sent_once_per_day UNIQUE (recipient_id, friend_id, type, day),
-    CONSTRAINT uq_sent_daily_slot UNIQUE (recipient_id, day, slot),
-    CONSTRAINT ck_sent_not_self CHECK (recipient_id <> friend_id),
-    CONSTRAINT ck_sent_slot_positive CHECK (slot >= 1),
-    CONSTRAINT ck_sent_type CHECK (type IN ('protein_machine', 'midnight_munch', 'bulldozer'))
+    CONSTRAINT uq_sent_type_per_day UNIQUE (recipient_id, type, day),
+    CONSTRAINT ck_sent_not_self CHECK (recipient_id <> friend_id)
 );

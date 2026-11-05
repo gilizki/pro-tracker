@@ -124,11 +124,16 @@ A day runs from 02:00 to 01:59 Israel time, so a meal logged at 01:30 counts tow
 
 Friends get a push notification on their phone when you:
 
-- 💪 **מכונת חלבון**: pass 120 g protein in a day
 - 🌙 **מאנץ' לילי**: log a meal between 00:00 and 01:59 (silent)
+- ☀️ **השכמה מוקדמת**: log a meal between 02:00 and 07:59
+- 🍳 **ארוחת בוקר מוקדמת**: log a meal between 02:00 and 09:59
+- 💨 **פצצת חלבון**: log a single meal with more than 25 g protein
 - 🚜 **בולדוזר**: pass 2000 kcal before 20:00
+- 💪 **מכונת חלבון**: pass 120 g protein in a day
 
-Each type is sent at most once per day per friend, one per meal, and at most 2 per day in total.
+Each friend receives each type at most once per tracker day (whoever triggered it), and at most one
+notification per meal: the first type in the list above that applies and they have not received today.
+Otherwise nothing is sent.
 Thresholds and texts live in `app/notifications/config.py`. Tap "הפעל התראות" in the app to enable
 (on iPhone, add the site to the Home Screen and open it from there first).
 

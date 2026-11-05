@@ -31,20 +31,22 @@ subscriptions = PushSubscriptionRepository()
 
 
 def schedule_meal_notifications(background_tasks: BackgroundTasks, user_id: int, record_date: dt.date,
-                                logged_at: dt.datetime) -> None:
+                                logged_at: dt.datetime, record_id: int) -> None:
     """Called by POST /records/ only after the meal was saved. Meals for any day
     other than the current tracker day never trigger notifications."""
     if record_date != tracker_day(logged_at):
         return
-    background_tasks.add_task(run_meal_notifications, user_id, record_date, logged_at)
+    background_tasks.add_task(run_meal_notifications, user_id, record_date, logged_at, record_id)
 
 
-def run_meal_notifications(user_id: int, record_date: dt.date, logged_at: dt.datetime) -> None:
-    """Runs after the response was sent. Must never raise: meal logging is already done."""
+def run_meal_notifications(user_id: int, record_date: dt.date, logged_at: dt.datetime, record_id: int) -> None:
+    """Runs after the response was sent, with its own DB session. Must never raise:
+    the meal is already saved, and any error here (even a database whose schema does
+    not match this code) is logged and swallowed."""
     try:
         db = database.SessionLocal()
         try:
-            notification_service.handle_meal(db, user_id, record_date, logged_at)
+            notification_service.handle_meal(db, user_id, record_date, logged_at, record_id)
         finally:
             db.close()
     except Exception:
