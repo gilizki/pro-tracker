@@ -137,12 +137,8 @@
   function goTo(target) {
     if (trackerView.classList.contains('hidden')) { pendingTarget = target; return; } // after login
     pendingTarget = null;
-    if (target !== 'friends') { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-    const friends = trackerView.querySelector('details.friends');
-    if (!friends) return;
-    if (friends.open) friends.dispatchEvent(new Event('toggle')); // friends.js reloads on "toggle" while open
-    else friends.open = true;                                       // opening fires "toggle" itself
-    friends.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // The main script's showPanel (index.html) switches panels; opening Friends (even again) makes friends.js reload.
+    if (typeof window.proTrackerShowPanel === 'function') window.proTrackerShowPanel(target === 'friends' ? 'friends' : 'log');
   }
 
   const params = new URLSearchParams(location.search);

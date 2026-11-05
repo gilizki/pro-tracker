@@ -1,5 +1,6 @@
-// Friends feature UI. Self-contained: it adds a collapsible "חברים" section at the
-// bottom of the tracker screen and does not touch the main script's state or functions.
+// Friends feature UI. Self-contained: it adds the "חברים" panel (#panel-friends) to the
+// tracker screen, opened from the menu, and does not touch the main script's state or functions.
+// The main script shows/hides the panel and fires "pro-tracker:panel" when one is opened.
 // Friends' data comes only from /friends endpoints, which return daily totals only.
 (() => {
   const TOKEN_KEY = 'proTrackerToken'; // Same key the main script in index.html uses.
@@ -8,8 +9,6 @@
 
   const style = document.createElement('style');
   style.textContent = `
-    .friends { margin-top: 20px; border-top: 1px solid #eee; padding-top: 12px; }
-    .friends > summary { cursor: pointer; font-size: 18px; font-weight: 700; padding: 6px 0; list-style-position: inside; }
     .friends h3 { font-size: 15px; margin: 16px 0 6px; }
     .friends .friends-code { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .friends .friends-code b { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 18px; letter-spacing: 1px; direction: ltr; }
@@ -20,10 +19,12 @@
   `;
   document.head.append(style);
 
-  const section = document.createElement('details');
-  section.className = 'friends';
+  const section = document.createElement('section');
+  section.id = 'panel-friends';
+  section.className = 'friends panel hidden';
   section.innerHTML = `
-    <summary>חברים 👥</summary>
+    <a class="back" data-panel="log">→ חזרה ליומן</a>
+    <h2>חברים 👥</h2>
     <div data-f="friends-block" hidden>
       <h3>החברים שלי – היום</h3>
       <div data-f="friends"></div>
@@ -155,11 +156,10 @@
     try { el('code').textContent = (await api('/friends/invite-code/regenerate', { method: 'POST' })).code; notify('נוצר קוד חדש.'); } catch (error) { fail(error); }
   };
 
-  // Load when opened; collapse and clear whenever the tracker screen is hidden (logout).
-  section.addEventListener('toggle', () => { if (section.open) { notify(); loadAll(); } });
+  // Load (again) every time the panel is opened; clear whenever the tracker screen is hidden (logout).
+  document.addEventListener('pro-tracker:panel', event => { if (event.detail === 'friends') { notify(); loadAll(); } });
   new MutationObserver(() => {
     if (trackerView.classList.contains('hidden')) {
-      section.open = false;
       notify();
       el('code').textContent = '…';
       el('friends-block').hidden = true;
