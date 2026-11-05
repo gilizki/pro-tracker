@@ -109,15 +109,37 @@ class FoodService:
             self._warn_global_duplicate(db, name)
         return self.to_dict(self.foods.update(db, food, name, calories, protein, new_status), user)
 
-    def delete_food(self, db: Session, user: User, food_id: int) -> None:
-        food = self._find_visible_or_404(db, user, food_id)
+    def delete_food(self, db: Session, user: User, food_id: int, keep_personal_copies: bool = False) -> dict:
+        food = self._find_visible_or_404(db, user, food_id)  # another user's personal food -> 404, even for admins
         if food.owner_id is None:
             require_admin(user)
-        # Records reference foods by id; deleting a used food would break meal history.
+            users, records = self.foods.usage(db, food.id)
+            if not records:
+                self.foods.delete(db, food)
+                return {"status": "deleted", "personal_copies": 0, "records_moved": 0}
+            # Used by someone: only with explicit confirmation, after which each of those users keeps a personal copy.
+            if not keep_personal_copies:
+                raise HTTPException(status_code=409, detail={
+                    "code": "food_in_use_global", "users": users, "records": records,
+                    "message": f"{users} user(s) logged this food ({records} record(s)). Confirm with "
+                               "keep_personal_copies=true to remove it from the global pool and keep a personal copy for them."})
+            copies, moved = self.foods.delete_global_keeping_personal_copies(db, food)
+            return {"status": "deleted", "personal_copies": copies, "records_moved": moved}
+        # Own personal food. Records reference foods by id; deleting a used food would break meal history.
         if self.foods.has_records(db, food.id):
             raise HTTPException(status_code=409, detail={
                 "code": "food_in_use", "message": "This food is used in meal records and cannot be deleted."})
         self.foods.delete(db, food)
+        return {"status": "deleted"}
+
+    def global_food_usage(self, db: Session, admin: User, food_id: int) -> dict:
+        """Preview for the admin's delete confirmation: who would get a personal copy."""
+        require_admin(admin)
+        food = self.foods.find_visible(db, food_id, admin.id)
+        if not food or food.owner_id is not None:
+            raise HTTPException(status_code=404, detail="Global food not found")
+        users, records = self.foods.usage(db, food.id)
+        return {"food_id": food.id, "users": users, "records": records}
 
     # ---------------------------------------------------------------- admin actions
     def list_suggestions(self, db: Session, admin: User) -> list[dict]:

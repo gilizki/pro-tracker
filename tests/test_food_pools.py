@@ -234,11 +234,172 @@ def test_delete_blocked_while_records_reference_food(client, make_user, make_adm
     client.delete(f"/records/{record_id}", headers=a)
     assert client.delete(f"/foods/{personal['id']}", headers=a).status_code == 200
 
-    # A global food used by any user cannot be deleted, even by an admin.
+    # A global food that someone logged is not deleted by a plain DELETE, even by an admin: the server
+    # answers with the real counts and asks for confirmation (keep_personal_copies=true, tested below).
     shared = add_food(client, admin, is_global=True)
     log(client, b, shared["id"])
-    assert client.delete(f"/foods/{shared['id']}", headers=admin).status_code == 409
+    guarded = client.delete(f"/foods/{shared['id']}", headers=admin)
+    assert guarded.status_code == 409
+    assert guarded.json()["detail"] | {"message": ""} == {"code": "food_in_use_global", "users": 1, "records": 1, "message": ""}
     assert shared["id"] in visible_ids(client, b)
+
+
+# ---------------------------------------------------------------- admin deletes a global food that has records
+
+def summary(client, headers, day=DAY):
+    return client.get(f"/summary/{day}", headers=headers).json()
+
+
+def personal_named(client, headers, name):
+    return [f for f in client.get("/foods/", headers=headers).json() if f["name"] == name and f["scope"] == "personal"]
+
+
+def delete_keeping_copies(client, headers, food_id):
+    return client.delete(f"/foods/{food_id}?keep_personal_copies=true", headers=headers)
+
+
+def test_admin_deletes_unused_global_food_plainly(client, make_admin, make_user):
+    _, admin = make_admin()
+    _, a = make_user()
+    shared = add_food(client, admin, is_global=True)
+    assert client.get(f"/admin/foods/{shared['id']}/usage", headers=admin).json() == {"food_id": shared["id"], "users": 0, "records": 0}
+    deleted = client.delete(f"/foods/{shared['id']}", headers=admin)
+    assert deleted.json() == {"status": "deleted", "personal_copies": 0, "records_moved": 0}
+    assert shared["id"] not in visible_ids(client, a)
+    assert personal_named(client, a, shared["name"]) == []
+
+
+def test_admin_deletes_global_food_used_by_one_user(client, make_admin, make_user):
+    _, admin = make_admin()
+    _, a = make_user()
+    _, bystander = make_user()
+    shared = add_food(client, admin, is_global=True, calories=120.5, protein=7.25)
+    log(client, a, shared["id"], grams=150)
+    log(client, a, shared["id"], grams=50)
+    before = summary(client, a)
+    assert client.get(f"/admin/foods/{shared['id']}/usage", headers=admin).json() == {"food_id": shared["id"], "users": 1, "records": 2}
+
+    result = delete_keeping_copies(client, admin, shared["id"])
+    assert result.status_code == 200 and result.json() == {"status": "deleted", "personal_copies": 1, "records_moved": 2}
+
+    for headers in (a, bystander, admin):
+        assert shared["id"] not in visible_ids(client, headers)  # gone from the shared pool for everyone
+    [copy] = personal_named(client, a, shared["name"])
+    assert (copy["calories"], copy["protein"], copy["suggestion_status"], copy["can_edit"]) == (120.5, 7.25, None, True)
+    assert personal_named(client, bystander, shared["name"]) == []  # only people who ate it get a copy
+    assert personal_named(client, admin, shared["name"]) == []
+    assert summary(client, a) == before  # same meals, same names, same totals
+
+
+def test_admin_deletes_global_food_used_by_several_users(client, make_admin, make_user):
+    _, admin = make_admin()
+    users = [make_user()[1] for _ in range(3)]
+    shared = add_food(client, admin, is_global=True, calories=200, protein=10)
+    log(client, users[0], shared["id"], grams=100)
+    log(client, users[1], shared["id"], grams=30)
+    log(client, users[1], shared["id"], grams=70)
+    log(client, users[2], shared["id"], grams=10)
+    log(client, admin, shared["id"], grams=250)  # the admin ate it too
+    other_day = client.post("/records/", json={"food_id": shared["id"], "amount_grams": 40, "date": "2026-01-16"}, headers=users[0])
+    assert other_day.status_code == 200
+    everyone = users + [admin]
+    before = {i: (summary(client, h), summary(client, h, "2026-01-16")) for i, h in enumerate(everyone)}
+    assert client.get(f"/admin/foods/{shared['id']}/usage", headers=admin).json()["users"] == 4
+
+    result = delete_keeping_copies(client, admin, shared["id"])
+    assert result.json() == {"status": "deleted", "personal_copies": 4, "records_moved": 6}
+
+    copy_ids = set()
+    for i, headers in enumerate(everyone):
+        [copy] = personal_named(client, headers, shared["name"])  # each user has exactly their own copy
+        copy_ids.add(copy["id"])
+        assert (summary(client, headers), summary(client, headers, "2026-01-16")) == before[i]
+        # the records resolve to the copy: deleting the copy is now blocked as "in use" for its owner
+        assert client.delete(f"/foods/{copy['id']}", headers=headers).json()["detail"]["code"] == "food_in_use"
+        # and the user can keep logging it
+        assert log(client, headers, copy["id"]).status_code == 200
+    assert len(copy_ids) == 4
+    # nobody can see (or log) anyone else's copy
+    for headers in everyone:
+        assert len(copy_ids & visible_ids(client, headers)) == 1
+
+
+def test_copy_is_created_even_if_user_has_a_personal_food_with_that_name(client, make_admin, make_user):
+    _, admin = make_admin()
+    _, a = make_user()
+    shared = add_food(client, admin, is_global=True, calories=100)
+    own = add_food(client, a, name=shared["name"], calories=50, allow_duplicate=True)
+    log(client, a, shared["id"])
+    log(client, a, own["id"])
+    before = summary(client, a)
+
+    assert delete_keeping_copies(client, admin, shared["id"]).json()["personal_copies"] == 1
+    foods = personal_named(client, a, shared["name"])
+    assert sorted(f["calories"] for f in foods) == [50, 100] and own["id"] in {f["id"] for f in foods}
+    assert summary(client, a) == before
+
+
+def test_delete_with_copies_rolls_back_everything_on_failure(client, make_admin, make_user, monkeypatch):
+    import pytest
+
+    from app.core import database
+    from app.tracker.models import Food, UserRecord
+    from app.tracker.repositories import FoodRepository
+
+    _, admin = make_admin()
+    _, a = make_user()
+    _, b = make_user()
+    shared = add_food(client, admin, is_global=True)
+    log(client, a, shared["id"])
+    log(client, b, shared["id"])
+    before = (summary(client, a), summary(client, b))
+
+    real_copy, calls = FoodRepository._personal_copy, []
+
+    def copy_then_fail(db, food, user_id):
+        calls.append(user_id)
+        if len(calls) == 2:  # the first copy and its record move already happened inside the transaction
+            raise RuntimeError("simulated failure")
+        return real_copy(db, food, user_id)
+
+    monkeypatch.setattr(FoodRepository, "_personal_copy", staticmethod(copy_then_fail))
+    with pytest.raises(RuntimeError, match="simulated failure"):
+        delete_keeping_copies(client, admin, shared["id"])
+    monkeypatch.undo()
+    assert len(calls) == 2
+
+    with database.SessionLocal() as db:
+        assert db.get(Food, shared["id"]) is not None  # the global food is still there
+        assert db.query(Food).filter(Food.name == shared["name"], Food.owner_id.isnot(None)).count() == 0  # no copies
+        assert {r.food_id for r in db.query(UserRecord).filter(UserRecord.user_id.in_(
+            [client.get("/auth/me", headers=h).json()["id"] for h in (a, b)]))} == {shared["id"]}
+    assert shared["id"] in visible_ids(client, a) and (summary(client, a), summary(client, b)) == before
+    # and a retry without the failure works
+    assert delete_keeping_copies(client, admin, shared["id"]).json()["personal_copies"] == 2
+
+
+def test_only_admins_delete_global_foods_or_see_usage(client, make_admin, make_user):
+    _, admin = make_admin()
+    _, a = make_user()
+    shared = add_food(client, admin, is_global=True)
+    log(client, a, shared["id"])
+    assert client.delete(f"/foods/{shared['id']}?keep_personal_copies=true", headers=a).status_code == 403
+    assert client.get(f"/admin/foods/{shared['id']}/usage", headers=a).status_code == 403
+    assert shared["id"] in visible_ids(client, a) and personal_named(client, a, shared["name"]) == []
+
+
+def test_nobody_deletes_another_users_personal_food(client, make_admin, make_user):
+    _, admin = make_admin()
+    _, a = make_user()
+    _, b = make_user()
+    personal = add_food(client, a)
+    log(client, a, personal["id"])
+    for headers in (admin, b):
+        assert client.delete(f"/foods/{personal['id']}?keep_personal_copies=true", headers=headers).status_code == 404
+    assert client.get(f"/admin/foods/{personal['id']}/usage", headers=admin).status_code == 404
+    # and the owner's own used personal food is still blocked, even with the flag
+    assert client.delete(f"/foods/{personal['id']}?keep_personal_copies=true", headers=a).json()["detail"]["code"] == "food_in_use"
+    assert personal["id"] in visible_ids(client, a)
 
 
 # ---------------------------------------------------------------- duplicates

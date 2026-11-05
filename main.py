@@ -96,9 +96,15 @@ def update_food(food_id: int, food: FoodUpdate, user: User = Depends(current_use
 
 
 @app.delete("/foods/{food_id}")
-def delete_food(food_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    food_service.delete_food(db, user, food_id)
-    return {"status": "deleted"}
+def delete_food(food_id: int, keep_personal_copies: bool = False, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """keep_personal_copies: admin confirmation to delete a global food that has records (see FoodService)."""
+    return food_service.delete_food(db, user, food_id, keep_personal_copies=keep_personal_copies)
+
+
+@app.get("/admin/foods/{food_id}/usage")
+def global_food_usage(food_id: int, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    return food_service.global_food_usage(db, admin, food_id)
 
 
 @app.get("/admin/suggestions")

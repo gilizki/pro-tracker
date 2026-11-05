@@ -13,10 +13,11 @@
     input, button { width: 100%; box-sizing: border-box; padding: 12px; margin-bottom: 12px; border: 1px solid #ccc; border-radius: 8px; font: inherit; }
     button { border: 0; background: #007aff; color: white; font-weight: 700; cursor: pointer; } button.secondary { background: #6c757d; } button.danger { background: #ff3b30; width: auto; margin: 0; padding: 7px 10px; }
     /* !important: rules declared later (e.g. .check { display: flex }) must not un-hide a hidden element. */
-    .hidden { display: none !important; } .hint, .error { text-align: center; font-size: 14px; } .hint { color: #666; } .error { color: #c92a20; min-height: 20px; }
+    .hidden { display: none !important; } .hint, .error { text-align: center; font-size: 14px; } .hint { color: #666; } .error { color: #c92a20; min-height: 20px; } .success { text-align: center; font-size: 14px; color: #2b8a3e; min-height: 20px; }
     .summary { display: flex; justify-content: space-around; padding: 15px; margin: 12px 0 20px; background: #e3f2fd; border-radius: 10px; color: #0277bd; font-weight: 700; }
     .row { display: flex; gap: 10px; } .row > * { min-width: 0; } .new-food { background: #f8f9fa; border: 2px dashed #007aff; padding: 14px; border-radius: 10px; margin: 12px 0; }
-    .user-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 15px; }
+    /* Sticky, so the menu (the only navigation) stays reachable however far a panel is scrolled. */
+    .user-bar { position: sticky; top: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: -8px 0 7px; padding: 8px 0; background: #fff; }
     .user-bar .greeting { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .meal { display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; background: #fafafa; padding: 10px; border-radius: 8px; margin-top: 8px; }
     .meal small { color: #666; } a { color: #007aff; cursor: pointer; } #food-search { margin-bottom: 4px; }
@@ -32,7 +33,6 @@
     .menu { position: absolute; top: calc(100% + 6px); inset-inline-start: 0; z-index: 10; width: 220px; max-width: calc(100vw - 40px); padding: 6px; background: #fff; border-radius: 12px; box-shadow: 0 6px 24px #0003; }
     .menu button { min-height: 44px; margin: 0; padding: 10px 12px; background: none; color: #222; text-align: start; font-weight: 600; border-radius: 8px; }
     .menu button:hover, .menu button:focus-visible { background: #f2f2f7; } .menu button.logout { color: #c92a20; }
-    .back { display: inline-block; padding: 10px 0; margin-bottom: 6px; font-size: 15px; }
     .date-label { text-align: center; color: #666; font-size: 14px; margin: -8px 0 12px; } .date-label.other-day { color: #a86b00; font-weight: 700; }
     .date-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; } .date-bar input { flex: 1; min-width: 0; margin: 0; }
     .date-bar button { width: auto; margin: 0; padding: 10px 12px; min-height: 44px; }
@@ -75,7 +75,8 @@
         <span class="greeting">שלום, <strong id="username"></strong></span>
       </div>
 
-      <!-- One panel is visible at a time; the menu switches between them (see showPanel). friends.js adds #panel-friends. -->
+      <!-- One panel is visible at a time; the menu (always in the sticky header) is the only way between them (see showPanel).
+           friends.js adds #panel-friends. -->
       <div id="panel-log" class="panel">
         <h1>יומן האוכל שלי 🥗</h1>
         <p id="date-label" class="date-label"></p>
@@ -103,7 +104,6 @@
       </div>
 
       <section id="panel-my-foods" class="panel hidden">
-        <a class="back" data-panel="log">→ חזרה ליומן</a>
         <h2 id="my-foods-title">המאכלים שלי</h2>
         <div id="edit-food" class="new-food hidden">
           <h2>עריכת מאכל</h2>
@@ -112,12 +112,12 @@
           <label id="edit-food-suggest-row" class="check"><input id="edit-food-suggest" type="checkbox"> הצע לכולם</label>
           <div class="row"><button id="edit-food-save">שמור</button><button id="edit-food-cancel" class="secondary">ביטול</button></div>
         </div>
+        <p id="my-foods-message" class="success"></p>
         <div id="my-food-list"></div>
         <p id="my-foods-error" class="error"></p>
       </section>
 
       <section id="panel-admin" class="panel hidden">
-        <a class="back" data-panel="log">→ חזרה ליומן</a>
         <h2 id="admin-title">הצעות ממתינות 🛡️</h2>
         <div id="suggestion-list"></div>
         <p id="admin-error" class="error"></p>
@@ -126,9 +126,9 @@
   </main>
 
   <!-- ?v= busts the browser's HTTP cache for these files after a deploy; bump it whenever they change. -->
-  <script src="/frontend/day.js?v=2"></script>
+  <script src="/frontend/day.js?v=3"></script>
   <script>
-    const state = { token: localStorage.getItem('proTrackerToken'), foods: [], user: null, editing: null, panel: 'log', restoreTimer: null };
+    const state = { token: localStorage.getItem('proTrackerToken'), foods: [], labels: new Map(), user: null, editing: null, panel: 'log', restoreTimer: null };
     const $ = id => document.getElementById(id);
     const setError = (id, message = '') => $(id).textContent = message;
     const show = (id, visible) => $(id).classList.toggle('hidden', !visible);
@@ -160,13 +160,27 @@
     }
 
     const normalize = text => text.trim().split(/\s+/).join(' ').toLowerCase();
-    // Admins see (and match) every food by a label with its pool's icon. Regular users see the plain name; only when
-    // one of their personal foods shares a name with a global one do both get a text label, so they can still pick.
-    function foodLabel(food) {
-      if (isAdmin()) return `${food.name} ${food.scope === 'global' ? '🌍' : '👤'}`;
-      const shared = state.foods.some(other => other.id !== food.id && normalize(other.name) === normalize(food.name));
-      return shared ? `${food.name} (${food.scope === 'global' ? 'כללי' : 'שלי'})` : food.name;
+    // The food list shows (and matches) one unique label per food. Admins see the pool's icon on every food; regular
+    // users see the plain name. When several visible foods share a name (a personal and a global one, or two personal
+    // ones, e.g. a copy kept when an admin removed a global food), each label adds its pool, then its calories, then a
+    // number, only as far as needed to tell them apart.
+    function buildLabels(foods) {
+      const admin = isAdmin(), labels = new Map(), groups = new Map();
+      foods.forEach(food => { const key = normalize(food.name); groups.set(key, [...(groups.get(key) || []), food]); });
+      groups.forEach(group => {
+        const pool = food => admin ? (food.scope === 'global' ? '🌍' : '👤') : (food.scope === 'global' ? 'כללי' : 'שלי');
+        const byPool = food => admin ? `${food.name} ${pool(food)}` : (group.length > 1 ? `${food.name} (${pool(food)})` : food.name);
+        const byCalories = food => admin ? `${food.name} ${pool(food)} · ${food.calories} קל׳` : `${food.name} (${pool(food)} · ${food.calories} קל׳)`;
+        const clashes = label => new Set(group.map(label)).size < group.length;
+        const label = clashes(byPool) ? byCalories : byPool, seen = new Map();
+        group.forEach(food => {
+          const text = label(food), n = (seen.get(text) || 0) + 1; seen.set(text, n);
+          labels.set(food.id, n > 1 ? `${text} #${n}` : text);
+        });
+      });
+      return labels;
     }
+    const foodLabel = food => state.labels.get(food.id) || food.name;
     function matchFoods(text) {
       const exact = state.foods.find(food => foodLabel(food) === text);
       return exact ? [exact] : state.foods.filter(food => normalize(food.name) === normalize(text));
@@ -191,6 +205,7 @@
       PANELS.forEach(panel => { const node = $(`panel-${panel}`); if (node) node.classList.toggle('hidden', panel !== name); });
       state.panel = name; setMenuOpen(false);
       if (name !== 'log') show('date-bar', false);
+      if (name === 'my-foods') { setError('my-foods-message'); setError('my-foods-error'); }
       if (name === 'admin') { setError('admin-error'); loadSuggestions().catch(error => setError('admin-error', error.message)); }
       document.dispatchEvent(new CustomEvent('pro-tracker:panel', { detail: name }));  // friends.js loads its data on this
       window.scrollTo(0, 0);
@@ -259,7 +274,7 @@
 
     // ----- foods, meals, suggestions -------------------------------------------------
     async function loadFoods() {
-      state.foods = await request('/foods/');
+      state.foods = await request('/foods/'); state.labels = buildLabels(state.foods);
       const list = $('food-options'); list.replaceChildren();
       state.foods.forEach(food => {
         const option = document.createElement('option'); option.value = foodLabel(food);
@@ -287,7 +302,7 @@
       setError('tracker-error'); const name = $('food-search').value.trim(), amount = Number($('amount').value);
       if (!name || !amount) return showTrackerError(new Error('יש לבחור מאכל וכמות.'));
       const matches = matchFoods(name);
-      if (matches.length > 1) return showTrackerError(new Error(isAdmin() ? 'יש כמה מאכלים בשם הזה – בחר מהרשימה (🌍 כללי או 👤 אישי).' : 'יש כמה מאכלים בשם הזה – בחר מהרשימה (כללי או שלי).'));
+      if (matches.length > 1) return showTrackerError(new Error(isAdmin() ? 'יש כמה מאכלים בשם הזה – בחר מהרשימה (🌍 כללי או 👤 אישי).' : 'יש כמה מאכלים בשם הזה – בחר אחד מהרשימה.'));
       const food = matches[0];
       if (!food) { $('new-food-name').value = name; $('new-food-suggest').checked = false; $('new-food-global').checked = false; show('new-food', true); return; }
       try { await request('/records/', { method: 'POST', body: JSON.stringify({ food_id: food.id, amount_grams: amount, date: $('date-picker').value }) }); $('food-search').value = ''; $('amount').value = ''; await loadSummary(); } catch (error) { showTrackerError(error); }
@@ -343,13 +358,35 @@
       }
     }
 
+    const peopleLogged = n => n === 1 ? 'אדם אחד רשם' : `${n} אנשים רשמו`;
+    const recordCount = n => n === 1 ? 'רשומה אחת' : `${n} רשומות`;
+    const copiesKept = n => n === 1 ? 'נשמר עותק אישי אחד' : `נשמרו ${n} עותקים אישיים`;
+    // A global food (admin) that people logged is removed from the shared pool and kept as a personal food for each
+    // of them; the confirmation shows the real numbers from the server first. Personal foods: as before.
     async function deleteFood(food) {
-      if (!confirm(`למחוק את "${food.name}"?`)) return; setError('my-foods-error');
+      setError('my-foods-error'); setError('my-foods-message');
+      let question = `למחוק את "${food.name}"?`, keepCopies = false;
+      if (food.scope === 'global') {
+        try {
+          const usage = await request(`/admin/foods/${food.id}/usage`);
+          keepCopies = usage.records > 0;
+          question = keepCopies
+            ? `${peopleLogged(usage.users)} את "${food.name}" (${recordCount(usage.records)}). המאכל יוסר מהמאגר הכללי ויישמר כמאכל אישי אצלם, עם ההיסטוריה והסיכומים שלהם. להמשיך?`
+            : `למחוק את "${food.name}" מהמאגר הכללי? אף אחד עוד לא רשם אותו.`;
+        } catch (error) { return setError('my-foods-error', error.message); }
+      }
+      if (!confirm(question)) return;
       try {
-        await request(`/foods/${food.id}`, { method: 'DELETE' });
+        const result = await request(`/foods/${food.id}${keepCopies ? '?keep_personal_copies=true' : ''}`, { method: 'DELETE' });
         if (state.editing && state.editing.id === food.id) { state.editing = null; show('edit-food', false); }
-        await loadFoods(); await loadSuggestions();
-      } catch (error) { setError('my-foods-error', error.message); }
+        await loadFoods(); await loadSummary(); await loadSuggestions();  // the admin's own log may use it too
+        if (food.scope === 'global') setError('my-foods-message', result.personal_copies
+          ? `"${food.name}" הוסר מהמאגר הכללי. ${copiesKept(result.personal_copies)}.`
+          : `"${food.name}" נמחק מהמאגר הכללי.`);
+      } catch (error) {
+        if (error.code === 'food_in_use_global') return deleteFood(food);  // logged after the preview: ask again with the new numbers
+        setError('my-foods-error', error.message);
+      }
     }
 
     async function loadSuggestions() {
@@ -397,7 +434,7 @@
     document.addEventListener('keydown', event => { if (event.key === 'Escape') setMenuOpen(false); });
     restoreSession();
   </script>
-  <script src="/frontend/friends.js?v=2"></script>
-  <script src="/frontend/notifications.js?v=2"></script>
+  <script src="/frontend/friends.js?v=3"></script>
+  <script src="/frontend/notifications.js?v=3"></script>
 </body>
 </html>

@@ -23,7 +23,6 @@
   section.id = 'panel-friends';
   section.className = 'friends panel hidden';
   section.innerHTML = `
-    <a class="back" data-panel="log">→ חזרה ליומן</a>
     <h2>חברים 👥</h2>
     <div data-f="friends-block" hidden>
       <h3>החברים שלי – היום</h3>

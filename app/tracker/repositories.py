@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import or_
+from sqlalchemy import distinct, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.tracker.models import SUGGESTION_PENDING, SUGGESTION_REJECTED, AuthSession, Food, User, UserRecord
@@ -85,6 +85,41 @@ class FoodRepository:
 
     def has_records(self, db: Session, food_id: int) -> bool:
         return db.query(UserRecord.id).filter(UserRecord.food_id == food_id).first() is not None
+
+    def usage(self, db: Session, food_id: int) -> tuple[int, int]:
+        """(distinct users, records) that reference this food."""
+        users, records = (db.query(func.count(distinct(UserRecord.user_id)), func.count(UserRecord.id))
+                          .filter(UserRecord.food_id == food_id).one())
+        return users, records
+
+    def delete_global_keeping_personal_copies(self, db: Session, food: Food) -> tuple[int, int]:
+        """Deletes a global food that has records, in ONE transaction: every user who logged it gets a
+        personal copy (same name and values, not suggested) and their records are repointed to it, so
+        their history and daily totals do not change. Any failure rolls everything back.
+        Returns (personal copies created, records moved)."""
+        try:
+            user_ids = [user_id for (user_id,) in db.query(UserRecord.user_id).filter(UserRecord.food_id == food.id)
+                        .distinct().order_by(UserRecord.user_id)]
+            moved = 0
+            for user_id in user_ids:
+                copy = self._personal_copy(db, food, user_id)
+                moved += (db.query(UserRecord)
+                          .filter(UserRecord.food_id == food.id, UserRecord.user_id == user_id)
+                          .update({UserRecord.food_id: copy.id}, synchronize_session=False))
+            # Bulk delete: db.delete(food) would try to null the FK of records still loaded in the session.
+            db.query(Food).filter(Food.id == food.id, Food.owner_id.is_(None)).delete(synchronize_session=False)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        return len(user_ids), moved
+
+    @staticmethod
+    def _personal_copy(db: Session, food: Food, user_id: int) -> Food:
+        copy = Food(name=food.name, calories=food.calories, protein=food.protein, owner_id=user_id, suggestion_status=None)
+        db.add(copy)
+        db.flush()  # assigns copy.id inside the open transaction; nothing is committed yet
+        return copy
 
     def create(self, db: Session, name: str, calories: float, protein: float,
                owner_id: Optional[int] = None, suggestion_status: Optional[str] = None) -> Food:
