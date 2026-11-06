@@ -539,7 +539,9 @@ def test_day_total_payload_shows_name_but_not_food_or_totals(client, pair, clock
     [(sent_to, payload)] = fake_sender.sent
     text_sent = json.dumps(payload, ensure_ascii=False)
     assert sent_to == endpoint and f["username"] in payload["body"]
-    shown = payload["title"] + payload["body"]   # (the tag holds the friend's id, so numbers are checked here)
+    # Numbers are checked in the visible text only (the tag holds the friend's id), without the username:
+    # it is random hex and may itself contain digits like "2345".
+    shown = (payload["title"] + payload["body"]).replace(f["username"], "")
     assert log_meal.last_food_name not in text_sent and "2345" not in shown and "13.7" not in shown
     assert set(payload) == PAYLOAD_FIELDS
     assert payload["type"] == BULLDOZER and payload["url"] == "/?open=friends" and payload["silent"] is False
@@ -552,7 +554,7 @@ def test_meal_protein_payload_shows_name_and_amount_but_not_food(client, pair, c
     text_sent = json.dumps(payload, ensure_ascii=False)
     assert set(payload) == PAYLOAD_FIELDS and payload["type"] == MEAL_PROTEIN
     assert f["username"] in payload["body"] and "32.6" in payload["body"]
-    shown = payload["title"] + payload["body"]
+    shown = (payload["title"] + payload["body"]).replace(f["username"], "")  # random hex username may contain "150"
     assert log_meal.last_food_name not in text_sent and "21.7" not in shown and "150" not in shown
 
 
