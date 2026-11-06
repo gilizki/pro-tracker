@@ -29,8 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from sqlalchemy import bindparam, create_engine, inspect, text
-from sqlalchemy.engine import Connection, make_url
+from sqlalchemy import bindparam, create_engine, event, inspect, text
+from sqlalchemy.engine import Connection, Engine, make_url
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.migrate_food_pools import backup_sqlite  # noqa: E402
@@ -87,6 +87,25 @@ class Report:
     skipped: list[Group] = field(default_factory=list)  # changed since planning (--apply only): left as is
     records_moved: int = 0
     foods_deleted: int = 0
+
+
+def make_engine(database_url: str) -> Engine:
+    """PostgreSQL: a normal engine (each engine.begin() is one transaction from its first statement).
+    SQLite: foreign keys enforced, and BEGIN is issued at the start of every transaction, so the re-check
+    SELECT in _merge_group is inside the same transaction as the UPDATE/DELETE (Python's sqlite3 driver would
+    otherwise begin only at the first UPDATE). Holding that read lock, no other writer can commit a change
+    to those rows between the check and our commit."""
+    engine = create_engine(database_url)
+    if engine.dialect.name == "sqlite":
+        @event.listens_for(engine, "connect")
+        def _connect(dbapi_connection, _record):
+            dbapi_connection.isolation_level = None  # we issue BEGIN ourselves
+            dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+        @event.listens_for(engine, "begin")
+        def _begin(connection):
+            connection.exec_driver_sql("BEGIN")
+    return engine
 
 
 def find_groups(connection: Connection) -> list[Group]:
@@ -153,7 +172,7 @@ def merge_duplicates(database_url: str, apply: bool = False, i_have_a_backup: bo
         raise MergeError("Refusing --apply on a non-SQLite database without --i-have-a-backup. "
                          "Take a Neon branch / pg_dump first. Nothing was changed.")
 
-    engine = create_engine(url.render_as_string(hide_password=False))
+    engine = make_engine(url.render_as_string(hide_password=False))
     try:
         inspector = inspect(engine)
         missing = [t for t in REQUIRED_TABLES if t not in inspector.get_table_names()]

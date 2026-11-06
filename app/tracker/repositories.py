@@ -100,21 +100,22 @@ class FoodRepository:
     def delete_with_records(self, db: Session, food: Food, expected_records: int) -> Optional[int]:
         """Deletes the food and every record (any user) that references it, in ONE transaction.
 
-        The food row is locked first (PostgreSQL; SQLite ignores FOR UPDATE): a concurrent INSERT into
-        user_records waits for that lock, so the count checked here is the count deleted.
-        If the count is not ``expected_records`` (someone logged or removed it since the caller's
-        preview), nothing is changed and None is returned. Any failure rolls everything back.
-        Returns the number of records deleted."""
+        The confirmed count is checked against the DELETE's own row count, not a separate SELECT, so it is
+        exact on both databases (Python's sqlite3 driver opens its transaction only at the first write, so
+        on SQLite an earlier SELECT would not be part of it). If it is not ``expected_records`` (someone
+        logged or removed it since the caller's preview), the deletion is rolled back and None is returned.
+        The food row is locked first (PostgreSQL; SQLite ignores FOR UPDATE) so a concurrent INSERT into
+        user_records waits instead of failing on the foreign key. Any failure rolls everything back; the
+        only commit is the one below. Returns the number of records deleted."""
         try:
             locked = db.query(Food).filter(Food.id == food.id).with_for_update().first()
             if locked is None:
                 db.rollback()
                 return 0
-            records = db.query(func.count(UserRecord.id)).filter(UserRecord.food_id == food.id).scalar()
+            records = db.query(UserRecord).filter(UserRecord.food_id == food.id).delete(synchronize_session=False)
             if records != expected_records:
                 db.rollback()
                 return None
-            db.query(UserRecord).filter(UserRecord.food_id == food.id).delete(synchronize_session=False)
             # Bulk delete: db.delete(food) would try to null the FK of records still loaded in the session.
             db.query(Food).filter(Food.id == food.id).delete(synchronize_session=False)
             db.commit()

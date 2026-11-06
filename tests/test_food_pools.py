@@ -320,6 +320,45 @@ def test_nobody_deletes_another_users_personal_food(client, make_admin, make_use
     assert personal["id"] in visible_ids(client, a) and len(summary(client, a)["meals"]) == 1
 
 
+def test_entry_logged_after_the_preview_cancels_the_delete(client, make_admin, make_user):
+    _, admin = make_admin()
+    _, a = make_user()
+    shared = add_food(client, admin, is_global=True)
+    log(client, a, shared["id"])
+    preview = usage(client, admin, shared["id"]).json()["records"]
+    log(client, a, shared["id"])  # someone logs it while the admin reads the confirmation
+    refused = delete(client, admin, shared["id"], preview)
+    assert refused.status_code == 409 and refused.json()["detail"]["records"] == 2
+    assert len(summary(client, a)["meals"]) == 2 and shared["id"] in visible_ids(client, a)  # the deletion was rolled back
+    assert delete(client, admin, shared["id"], 2).json()["records_deleted"] == 2
+
+
+def test_sqlite_foreign_keys_are_enforced_like_postgres(client, make_user):
+    """The test DB is SQLite; without PRAGMA foreign_keys=ON it would accept rows PostgreSQL refuses."""
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core import database
+    from app.tracker.models import Food
+
+    _, a = make_user()
+    food = add_food(client, a)
+    log(client, a, food["id"])
+    with database.engine.connect() as connection:
+        assert connection.execute(text("PRAGMA foreign_keys")).scalar() == 1
+    with database.SessionLocal() as db:
+        with pytest.raises(IntegrityError):  # a food that still has entries cannot be deleted on its own
+            db.query(Food).filter(Food.id == food["id"]).delete(synchronize_session=False)
+            db.commit()
+        db.rollback()
+        with pytest.raises(IntegrityError):  # an entry cannot point at a food that does not exist
+            db.execute(text("INSERT INTO user_records (user_id, food_id, amount_grams, record_date) "
+                            "VALUES (1, 987654321, 1, '2026-01-01')"))
+            db.commit()
+    assert food["id"] in visible_ids(client, a)
+
+
 def test_delete_rolls_back_everything_on_failure(client, make_user, monkeypatch):
     import pytest
     from sqlalchemy.orm import Query

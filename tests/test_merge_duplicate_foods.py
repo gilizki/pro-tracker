@@ -112,16 +112,17 @@ def test_apply_merges_only_same_pool_same_owner_same_values(db):
 
 
 def test_group_changed_since_plan_is_skipped(db, monkeypatch):
-    real_find = tool.find_groups
+    real_merge = tool._merge_group
 
-    def find_then_edit(connection):
-        groups = real_find(connection)
-        with sqlite3.connect(db) as other:  # someone edits food #21 between the plan and the merge
-            other.execute("UPDATE foods SET calories = 160 WHERE id = 21")
-        other.close()
-        return groups
+    def edit_then_merge(connection, group):
+        if group.keeper.id == 20:  # someone edits food #21 after the plan, before this group's transaction reads it
+            other = sqlite3.connect(db)
+            with other:
+                other.execute("UPDATE foods SET calories = 160 WHERE id = 21")
+            other.close()
+        return real_merge(connection, group)
 
-    monkeypatch.setattr(tool, "find_groups", find_then_edit)
+    monkeypatch.setattr(tool, "_merge_group", edit_then_merge)
     report = merge_duplicates(url(db), apply=True, out=quiet)
     assert [g.keeper.id for g in report.merged] == [10] and [g.keeper.id for g in report.skipped] == [20]
     assert query(db, "SELECT id FROM foods WHERE id IN (20, 21) ORDER BY id") == [(20,), (21,)]
@@ -145,6 +146,48 @@ def test_failure_rolls_back_only_that_group(db, monkeypatch):
     assert query(db, "SELECT COUNT(*) FROM foods WHERE id IN (11, 12)") == [(0,)]  # first group committed
     assert query(db, "SELECT id FROM foods WHERE id IN (20, 21) ORDER BY id") == [(20,), (21,)]  # second rolled back
     assert query(db, "SELECT food_id FROM user_records WHERE id IN (105, 106) ORDER BY id") == [(21,), (21,)]
+
+
+def test_sqlite_engine_enforces_foreign_keys(db):
+    from sqlalchemy.exc import IntegrityError
+
+    engine = tool.make_engine(url(db))
+    try:
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+        with pytest.raises(IntegrityError):  # deleting a food that still has entries is refused by the database
+            with engine.begin() as connection:
+                connection.exec_driver_sql("DELETE FROM foods WHERE id = 12")
+    finally:
+        engine.dispose()
+    assert query(db, "SELECT COUNT(*) FROM foods WHERE id = 12") == [(1,)]
+
+
+def test_recheck_moves_and_deletes_run_in_one_transaction_per_group(db, monkeypatch):
+    real_merge, seen = tool._merge_group, []
+
+    def spy(connection, group):
+        dbapi = connection.connection.dbapi_connection
+        statements = []
+        original_execute = connection.execute
+
+        def recording_execute(statement, *args, **kwargs):
+            result = original_execute(statement, *args, **kwargs)
+            statements.append((str(statement).split()[0], dbapi.in_transaction))  # (verb, inside a DB transaction?)
+            return result
+
+        monkeypatch.setattr(connection, "execute", recording_execute)
+        result = real_merge(connection, group)
+        seen.append((group.keeper.id, statements))
+        return result
+
+    monkeypatch.setattr(tool, "_merge_group", spy)
+    merge_duplicates(url(db), apply=True, out=quiet)
+    assert [keeper for keeper, _ in seen] == [10, 20]
+    for _, statements in seen:
+        verbs = [verb for verb, _ in statements]
+        assert verbs[0] == "SELECT" and "UPDATE" in verbs and "DELETE" in verbs
+        assert all(inside for _, inside in statements)  # even the first SELECT: BEGIN came before it
 
 
 def test_database_url_is_required_and_env_is_ignored(monkeypatch):

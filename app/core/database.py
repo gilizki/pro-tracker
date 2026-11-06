@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 
@@ -16,6 +16,21 @@ if DATABASE_URL.startswith("postgres://"):
 
 engine_options = {"connect_args": {"check_same_thread": False}} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, **engine_options)
+
+
+def enable_sqlite_foreign_keys(sqlite_engine) -> None:
+    """SQLite ignores FOREIGN KEY constraints unless each connection turns them on, so without this a record
+    could point at a deleted food locally while PostgreSQL (production) would refuse it. Runs on every new
+    pooled connection, outside any transaction (the PRAGMA is a no-op inside one)."""
+    @event.listens_for(sqlite_engine, "connect")
+    def _foreign_keys_on(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
+if engine.dialect.name == "sqlite":
+    enable_sqlite_foreign_keys(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
