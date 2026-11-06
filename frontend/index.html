@@ -21,6 +21,12 @@
     .user-bar .greeting { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .meal { display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee; background: #fafafa; padding: 10px; border-radius: 8px; margin-top: 8px; }
     .meal small { color: #666; } a { color: #007aff; cursor: pointer; } #food-search { margin-bottom: 4px; }
+    /* Our own suggestion list, not a datalist element: iOS Safari opens that on an empty, focused field. */
+    .search-wrap { position: relative; }
+    .suggestions { position: absolute; top: calc(100% - 2px); inset-inline: 0; z-index: 15; max-height: 264px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: #fff; border: 1px solid #ccc; border-radius: 8px; box-shadow: 0 6px 20px #0002; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    .suggestions li { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; box-sizing: border-box; border-radius: 6px; cursor: pointer; }
+    .suggestions li.active, .suggestions li:hover { background: #e3f2fd; } .suggestions .name { min-width: 0; overflow-wrap: anywhere; }
+    .suggestions .cal { flex-shrink: 0; color: #666; font-size: 14px; } .suggestions .pool { color: #666; font-size: 13px; }
     .legend { font-size: 13px; color: #666; margin: 0 0 12px; } .check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 15px; cursor: pointer; }
     .check input { width: auto; margin: 0; }
     .actions { display: flex; gap: 6px; } .actions button { width: auto; margin: 0; padding: 7px 10px; } button.ok { background: #34c759; }
@@ -86,8 +92,13 @@
           <button id="date-close" class="secondary" aria-label="סגור">✕</button>
         </div>
         <div class="summary"><span>🔥 קלוריות: <b id="total-cal">0</b></span><span>💪 חלבון: <b id="total-pro">0</b>g</span></div>
-        <input id="food-search" list="food-options" placeholder="חפש או בחר מאכל...">
-        <datalist id="food-options"></datalist>
+        <div class="search-wrap">
+          <!-- autocomplete/autocorrect off and no list attribute: only #food-suggestions may suggest anything here. -->
+          <input id="food-search" type="text" name="pt-food-query" placeholder="הקלד שם מאכל..." autocomplete="off" autocorrect="off"
+                 autocapitalize="off" spellcheck="false" enterkeyhint="next" role="combobox" aria-autocomplete="list"
+                 aria-expanded="false" aria-controls="food-suggestions">
+          <ul id="food-suggestions" class="suggestions hidden" role="listbox" aria-label="הצעות מאכלים"></ul>
+        </div>
         <p class="legend admin-only hidden"><span class="tag global">🌍 כללי</span> מאגר משותף לכולם · <span class="tag personal">👤 אישי</span> רק אתה רואה</p>
         <input id="amount" type="number" min="1" placeholder="כמות בגרמים">
         <button id="add-meal">הוסף ארוחה</button>
@@ -127,8 +138,9 @@
 
   <!-- ?v= busts the browser's HTTP cache for these files after a deploy; bump it whenever they change. -->
   <script src="/frontend/day.js?v=3"></script>
+  <script src="/frontend/food-search.js?v=1"></script>
   <script>
-    const state = { token: localStorage.getItem('proTrackerToken'), foods: [], labels: new Map(), user: null, editing: null, panel: 'log', restoreTimer: null };
+    const state = { token: localStorage.getItem('proTrackerToken'), foods: [], selectedFoodId: null, activeSuggestion: -1, user: null, editing: null, panel: 'log', restoreTimer: null };
     const $ = id => document.getElementById(id);
     const setError = (id, message = '') => $(id).textContent = message;
     const show = (id, visible) => $(id).classList.toggle('hidden', !visible);
@@ -159,31 +171,56 @@
       return response.status === 204 ? null : response.json();
     }
 
-    const normalize = text => text.trim().split(/\s+/).join(' ').toLowerCase();
-    // The food list shows (and matches) one unique label per food. Admins see the pool's icon on every food; regular
-    // users see the plain name. When several visible foods share a name (a personal and a global one, or two personal
-    // ones left over from before the server blocked that), each label adds its pool, then its calories, then a
-    // number, only as far as needed to tell them apart.
-    function buildLabels(foods) {
-      const admin = isAdmin(), labels = new Map(), groups = new Map();
-      foods.forEach(food => { const key = normalize(food.name); groups.set(key, [...(groups.get(key) || []), food]); });
-      groups.forEach(group => {
-        const pool = food => admin ? (food.scope === 'global' ? '🌍' : '👤') : (food.scope === 'global' ? 'כללי' : 'שלי');
-        const byPool = food => admin ? `${food.name} ${pool(food)}` : (group.length > 1 ? `${food.name} (${pool(food)})` : food.name);
-        const byCalories = food => admin ? `${food.name} ${pool(food)} · ${food.calories} קל׳` : `${food.name} (${pool(food)} · ${food.calories} קל׳)`;
-        const clashes = label => new Set(group.map(label)).size < group.length;
-        const label = clashes(byPool) ? byCalories : byPool, seen = new Map();
-        group.forEach(food => {
-          const text = label(food), n = (seen.get(text) || 0) + 1; seen.set(text, n);
-          labels.set(food.id, n > 1 ? `${text} #${n}` : text);
-        });
-      });
-      return labels;
+    // ----- food search ---------------------------------------------------------------
+    // Matching/ranking/dedup live in food-search.js. Picking a suggestion remembers that food's id, so a name shared
+    // by several foods still logs the one that was picked; typing again forgets it.
+    const POOL_NAMES = { global: 'כללי', personal: 'שלי' };
+    const currentSuggestions = () => foodSearch.foodSuggestions(state.foods, $('food-search').value);
+    function closeSuggestions() {
+      state.activeSuggestion = -1; show('food-suggestions', false);
+      $('food-search').setAttribute('aria-expanded', 'false'); $('food-search').removeAttribute('aria-activedescendant');
     }
-    const foodLabel = food => state.labels.get(food.id) || food.name;
+    function renderSuggestions() {
+      const items = currentSuggestions(), list = $('food-suggestions');
+      if (!items.length) return closeSuggestions();
+      state.activeSuggestion = Math.min(state.activeSuggestion, items.length - 1);
+      list.replaceChildren(...items.map((item, index) => {
+        const option = element('li'); option.id = `food-suggestion-${index}`; option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', String(index === state.activeSuggestion)); option.classList.toggle('active', index === state.activeSuggestion);
+        const name = element('span', 'name', item.name);
+        if (item.pool) name.append(' ', element('span', 'pool', `(${POOL_NAMES[item.pool]})`));
+        option.append(name, element('span', 'cal', `${item.calories} קל׳`));
+        option.onclick = () => chooseSuggestion(item.food);
+        return option;
+      }));
+      show('food-suggestions', true); $('food-search').setAttribute('aria-expanded', 'true');
+      if (state.activeSuggestion >= 0) {
+        $('food-search').setAttribute('aria-activedescendant', `food-suggestion-${state.activeSuggestion}`);
+        list.children[state.activeSuggestion].scrollIntoView({ block: 'nearest' });
+      } else $('food-search').removeAttribute('aria-activedescendant');
+    }
+    function chooseSuggestion(food) {
+      $('food-search').value = food.name; state.selectedFoodId = food.id; closeSuggestions();
+      $('amount').focus();
+    }
+    function onSearchKey(event) {
+      const list = $('food-suggestions'), open = !list.classList.contains('hidden'), count = open ? list.children.length : 0;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (!open) return renderSuggestions();
+        state.activeSuggestion = event.key === 'ArrowDown' ? (state.activeSuggestion + 1) % count
+          : (state.activeSuggestion <= 0 ? count - 1 : state.activeSuggestion - 1);
+        renderSuggestions();
+      } else if (event.key === 'Enter' && open && state.activeSuggestion >= 0) {
+        event.preventDefault(); chooseSuggestion(currentSuggestions()[state.activeSuggestion].food);
+      } else if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); closeSuggestions(); }
+    }
+    // The food the add-meal button logs: the picked suggestion while the field still shows its name, otherwise
+    // the foods with exactly that name (identical copies counted once).
     function matchFoods(text) {
-      const exact = state.foods.find(food => foodLabel(food) === text);
-      return exact ? [exact] : state.foods.filter(food => normalize(food.name) === normalize(text));
+      const picked = state.foods.find(food => food.id === state.selectedFoodId);
+      if (picked && foodSearch.normalizeFoodText(picked.name) === foodSearch.normalizeFoodText(text)) return [picked];
+      return foodSearch.findFoodsByName(state.foods, text);
     }
     function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
     function button(text, className, onclick) { const node = element('button', className, text); node.onclick = onclick; return node; }
@@ -274,14 +311,9 @@
 
     // ----- foods, meals, suggestions -------------------------------------------------
     async function loadFoods() {
-      state.foods = await request('/foods/'); state.labels = buildLabels(state.foods);
-      const list = $('food-options'); list.replaceChildren();
-      state.foods.forEach(food => {
-        const option = document.createElement('option'); option.value = foodLabel(food);
-        if (isAdmin()) option.label = food.scope === 'global' ? 'מאגר כללי' : (food.suggestion_status === 'pending' ? 'אישי · ממתין לאישור' : 'אישי');
-        else if (food.suggestion_status === 'pending') option.label = 'ממתין לאישור';
-        list.append(option);
-      });
+      state.foods = await request('/foods/');
+      if (!state.foods.some(food => food.id === state.selectedFoodId)) state.selectedFoodId = null;  // e.g. it was deleted
+      if (!$('food-suggestions').classList.contains('hidden')) renderSuggestions();
       renderMyFoods();
     }
 
@@ -302,10 +334,10 @@
       setError('tracker-error'); const name = $('food-search').value.trim(), amount = Number($('amount').value);
       if (!name || !amount) return showTrackerError(new Error('יש לבחור מאכל וכמות.'));
       const matches = matchFoods(name);
-      if (matches.length > 1) return showTrackerError(new Error(isAdmin() ? 'יש כמה מאכלים בשם הזה – בחר מהרשימה (🌍 כללי או 👤 אישי).' : 'יש כמה מאכלים בשם הזה – בחר אחד מהרשימה.'));
+      if (matches.length > 1) { $('food-search').focus(); renderSuggestions(); return showTrackerError(new Error('יש כמה מאכלים בשם הזה – בחר אחד מהרשימה.')); }
       const food = matches[0];
-      if (!food) { $('new-food-name').value = name; $('new-food-suggest').checked = false; $('new-food-global').checked = false; show('new-food', true); return; }
-      try { await request('/records/', { method: 'POST', body: JSON.stringify({ food_id: food.id, amount_grams: amount, date: $('date-picker').value }) }); $('food-search').value = ''; $('amount').value = ''; await loadSummary(); } catch (error) { showTrackerError(error); }
+      if (!food) { closeSuggestions(); $('new-food-name').value = name; $('new-food-suggest').checked = false; $('new-food-global').checked = false; show('new-food', true); return; }
+      try { await request('/records/', { method: 'POST', body: JSON.stringify({ food_id: food.id, amount_grams: amount, date: $('date-picker').value }) }); $('food-search').value = ''; state.selectedFoodId = null; closeSuggestions(); $('amount').value = ''; await loadSummary(); } catch (error) { showTrackerError(error); }
     }
 
     async function saveFood(allowDuplicate = false) {
@@ -314,7 +346,7 @@
                      suggest: $('new-food-suggest').checked, is_global: isAdmin() && $('new-food-global').checked, allow_duplicate: allowDuplicate };
       try {
         const food = await request('/foods/', { method: 'POST', body: JSON.stringify(body) });
-        await loadFoods(); show('new-food', false); $('food-search').value = foodLabel(food); $('new-food-cal').value = ''; $('new-food-pro').value = ''; await addMeal();
+        await loadFoods(); show('new-food', false); $('food-search').value = food.name; state.selectedFoodId = food.id; $('new-food-cal').value = ''; $('new-food-pro').value = ''; await addMeal();
         if (food.suggestion_status === 'pending') await loadSuggestions();
       } catch (error) {
         if (confirmDuplicate(error)) return saveFood(true);
@@ -415,6 +447,16 @@
     // Disables the button until the request finishes, so a double tap cannot save the same food twice.
     const busyWhile = (id, action) => async () => { const node = $(id); if (node.disabled) return; node.disabled = true; try { await action(); } finally { node.disabled = false; } };
     $('add-meal').onclick = busyWhile('add-meal', addMeal); $('save-food').onclick = busyWhile('save-food', () => saveFood());
+    $('food-search').oninput = () => { state.selectedFoodId = null; state.activeSuggestion = -1; renderSuggestions(); };  // empty -> closes
+    $('food-search').onfocus = () => renderSuggestions();  // reopens for text already there; an empty field shows nothing
+    $('food-search').onkeydown = onSearchKey;
+    // Closed by a tap or focus OUTSIDE the field and its list, not by blur: on iOS a tap on a suggestion can blur the
+    // field before its click arrives. preventDefault keeps the keyboard/focus in the field while a suggestion is pressed.
+    $('food-suggestions').addEventListener('pointerdown', event => event.preventDefault());
+    $('food-suggestions').addEventListener('mousedown', event => event.preventDefault());
+    const outsideSearch = event => { if (!event.target.closest || !event.target.closest('.search-wrap')) closeSuggestions(); };
+    document.addEventListener('pointerdown', outsideSearch);
+    document.addEventListener('focusin', outsideSearch);
     $('date-picker').onchange = () => changeDate($('date-picker').value);
     $('date-today').onclick = () => changeDate(today()); $('date-close').onclick = () => show('date-bar', false);
     $('new-food-suggest').onchange = () => { if ($('new-food-suggest').checked) $('new-food-global').checked = false; };
