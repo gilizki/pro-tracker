@@ -140,7 +140,7 @@
       duplicate_global_suggestion: 'כבר קיים מאכל בשם הזה במאגר הכללי, ולכן אי אפשר להציע אותו לכולם.',
       duplicate_global_blocked: 'כבר קיים מאכל בשם הזה במאגר הכללי.',
       edit_before_resuggest: 'ההצעה נדחתה. ערוך את המאכל לפני שתציע אותו שוב.',
-      food_in_use: 'המאכל מופיע ברשומות ארוחה ולכן אי אפשר למחוק אותו.',
+      duplicate_personal: 'כבר יש לך מאכל אישי בשם הזה.',
     };
 
     async function request(path, options = {}) {
@@ -162,7 +162,7 @@
     const normalize = text => text.trim().split(/\s+/).join(' ').toLowerCase();
     // The food list shows (and matches) one unique label per food. Admins see the pool's icon on every food; regular
     // users see the plain name. When several visible foods share a name (a personal and a global one, or two personal
-    // ones, e.g. a copy kept when an admin removed a global food), each label adds its pool, then its calories, then a
+    // ones left over from before the server blocked that), each label adds its pool, then its calories, then a
     // number, only as far as needed to tell them apart.
     function buildLabels(foods) {
       const admin = isAdmin(), labels = new Map(), groups = new Map();
@@ -358,33 +358,27 @@
       }
     }
 
-    const peopleLogged = n => n === 1 ? 'אדם אחד רשם' : `${n} אנשים רשמו`;
-    const recordCount = n => n === 1 ? 'רשומה אחת' : `${n} רשומות`;
-    const copiesKept = n => n === 1 ? 'נשמר עותק אישי אחד' : `נשמרו ${n} עותקים אישיים`;
-    // A global food (admin) that people logged is removed from the shared pool and kept as a personal food for each
-    // of them; the confirmation shows the real numbers from the server first. Personal foods: as before.
+    const entryCount = n => n === 1 ? 'ברשומה קודמת אחת' : `ב-${n} רשומות קודמות`;
+    const userCount = n => n === 1 ? 'של משתמש אחד' : `של ${n} משתמשים`;
+    // Deleting a food also deletes every log entry that uses it. The server counts them first (for a global food:
+    // across all users) and only deletes if the confirmed count is still the real one; otherwise it answers
+    // food_in_use_confirm and we ask again with the new numbers.
     async function deleteFood(food) {
       setError('my-foods-error'); setError('my-foods-message');
-      let question = `למחוק את "${food.name}"?`, keepCopies = false;
-      if (food.scope === 'global') {
-        try {
-          const usage = await request(`/admin/foods/${food.id}/usage`);
-          keepCopies = usage.records > 0;
-          question = keepCopies
-            ? `${peopleLogged(usage.users)} את "${food.name}" (${recordCount(usage.records)}). המאכל יוסר מהמאגר הכללי ויישמר כמאכל אישי אצלם, עם ההיסטוריה והסיכומים שלהם. להמשיך?`
-            : `למחוק את "${food.name}" מהמאגר הכללי? אף אחד עוד לא רשם אותו.`;
-        } catch (error) { return setError('my-foods-error', error.message); }
-      }
+      let usage;
+      try { usage = await request(`/foods/${food.id}/usage`); } catch (error) { return setError('my-foods-error', error.message); }
+      const where = food.scope === 'global' ? ' מהמאגר הכללי' : '';
+      const question = !usage.records ? `למחוק את "${food.name}"${where}?`
+        : `"${food.name}" מופיע ${entryCount(usage.records)}${food.scope === 'global' ? ` ${userCount(usage.users)}` : ''}. `
+          + `מחיקה תסיר אותו גם משם, וסכומי הקלוריות והחלבון של אותם ימים ישתנו${food.scope === 'global' ? ' אצל כל המשתמשים האלה' : ''}. להמשיך?`;
       if (!confirm(question)) return;
       try {
-        const result = await request(`/foods/${food.id}${keepCopies ? '?keep_personal_copies=true' : ''}`, { method: 'DELETE' });
+        const result = await request(`/foods/${food.id}?confirm_records=${usage.records}`, { method: 'DELETE' });
         if (state.editing && state.editing.id === food.id) { state.editing = null; show('edit-food', false); }
-        await loadFoods(); await loadSummary(); await loadSuggestions();  // the admin's own log may use it too
-        if (food.scope === 'global') setError('my-foods-message', result.personal_copies
-          ? `"${food.name}" הוסר מהמאגר הכללי. ${copiesKept(result.personal_copies)}.`
-          : `"${food.name}" נמחק מהמאגר הכללי.`);
+        await loadFoods(); await loadSummary(); await loadSuggestions();
+        setError('my-foods-message', result.records_deleted ? `"${food.name}" נמחק, יחד עם ${result.records_deleted === 1 ? 'רשומה אחת' : `${result.records_deleted} רשומות`}.` : `"${food.name}" נמחק.`);
       } catch (error) {
-        if (error.code === 'food_in_use_global') return deleteFood(food);  // logged after the preview: ask again with the new numbers
+        if (error.code === 'food_in_use_confirm') return deleteFood(food);  // entries changed since the preview: ask again
         setError('my-foods-error', error.message);
       }
     }
@@ -418,12 +412,14 @@
     // ----- wiring ------------------------------------------------------------------
     $('show-signup').onclick = () => displayAuth(true); $('show-login').onclick = () => displayAuth(false);
     $('login-button').onclick = () => authenticate('/auth/login', 'login-username', 'login-password'); $('signup-button').onclick = () => authenticate('/auth/signup', 'signup-username', 'signup-password');
-    $('add-meal').onclick = addMeal; $('save-food').onclick = () => saveFood();
+    // Disables the button until the request finishes, so a double tap cannot save the same food twice.
+    const busyWhile = (id, action) => async () => { const node = $(id); if (node.disabled) return; node.disabled = true; try { await action(); } finally { node.disabled = false; } };
+    $('add-meal').onclick = busyWhile('add-meal', addMeal); $('save-food').onclick = busyWhile('save-food', () => saveFood());
     $('date-picker').onchange = () => changeDate($('date-picker').value);
     $('date-today').onclick = () => changeDate(today()); $('date-close').onclick = () => show('date-bar', false);
     $('new-food-suggest').onchange = () => { if ($('new-food-suggest').checked) $('new-food-global').checked = false; };
     $('new-food-global').onchange = () => { if ($('new-food-global').checked) $('new-food-suggest').checked = false; };
-    $('edit-food-save').onclick = () => saveEdit(); $('edit-food-cancel').onclick = () => { state.editing = null; show('edit-food', false); };
+    $('edit-food-save').onclick = busyWhile('edit-food-save', () => saveEdit()); $('edit-food-cancel').onclick = () => { state.editing = null; show('edit-food', false); };
     $('menu-button').onclick = () => setMenuOpen($('app-menu').classList.contains('hidden'));
     $('menu-date').onclick = openDatePicker;
     $('logout').onclick = logOut;  // keep the id: notifications.js unsubscribes this device on a click on #logout

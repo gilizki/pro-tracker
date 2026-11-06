@@ -97,16 +97,17 @@ def update_food(food_id: int, food: FoodUpdate, user: User = Depends(current_use
                                     suggest=food.suggest, allow_duplicate=food.allow_duplicate)
 
 
+@app.get("/foods/{food_id}/usage")
+def food_usage(food_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Delete preview: log entries (and users) that use this food. Owner for personal foods, admins for global ones."""
+    return food_service.food_usage(db, user, food_id)
+
+
 @app.delete("/foods/{food_id}")
-def delete_food(food_id: int, keep_personal_copies: bool = False, user: User = Depends(current_user),
+def delete_food(food_id: int, confirm_records: int = 0, user: User = Depends(current_user),
                 db: Session = Depends(get_db)):
-    """keep_personal_copies: admin confirmation to delete a global food that has records (see FoodService)."""
-    return food_service.delete_food(db, user, food_id, keep_personal_copies=keep_personal_copies)
-
-
-@app.get("/admin/foods/{food_id}/usage")
-def global_food_usage(food_id: int, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
-    return food_service.global_food_usage(db, admin, food_id)
+    """Deletes the food and every log entry using it. confirm_records = the count the user confirmed (see FoodService)."""
+    return food_service.delete_food(db, user, food_id, confirm_records=confirm_records)
 
 
 @app.get("/admin/suggestions")

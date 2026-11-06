@@ -67,6 +67,14 @@ class FoodRepository:
                 return food
         return None
 
+    def find_personal_by_name(self, db: Session, owner_id: int, name: str,
+                              exclude_id: Optional[int] = None) -> Optional[Food]:
+        key = normalize_food_name(name)
+        for food in db.query(Food).filter(Food.owner_id == owner_id).order_by(Food.id):
+            if food.id != exclude_id and normalize_food_name(food.name) == key:
+                return food
+        return None
+
     def list_pending(self, db: Session) -> list[Food]:
         return (
             db.query(Food)
@@ -83,43 +91,37 @@ class FoodRepository:
             .first()
         )
 
-    def has_records(self, db: Session, food_id: int) -> bool:
-        return db.query(UserRecord.id).filter(UserRecord.food_id == food_id).first() is not None
-
     def usage(self, db: Session, food_id: int) -> tuple[int, int]:
         """(distinct users, records) that reference this food."""
         users, records = (db.query(func.count(distinct(UserRecord.user_id)), func.count(UserRecord.id))
                           .filter(UserRecord.food_id == food_id).one())
         return users, records
 
-    def delete_global_keeping_personal_copies(self, db: Session, food: Food) -> tuple[int, int]:
-        """Deletes a global food that has records, in ONE transaction: every user who logged it gets a
-        personal copy (same name and values, not suggested) and their records are repointed to it, so
-        their history and daily totals do not change. Any failure rolls everything back.
-        Returns (personal copies created, records moved)."""
+    def delete_with_records(self, db: Session, food: Food, expected_records: int) -> Optional[int]:
+        """Deletes the food and every record (any user) that references it, in ONE transaction.
+
+        The food row is locked first (PostgreSQL; SQLite ignores FOR UPDATE): a concurrent INSERT into
+        user_records waits for that lock, so the count checked here is the count deleted.
+        If the count is not ``expected_records`` (someone logged or removed it since the caller's
+        preview), nothing is changed and None is returned. Any failure rolls everything back.
+        Returns the number of records deleted."""
         try:
-            user_ids = [user_id for (user_id,) in db.query(UserRecord.user_id).filter(UserRecord.food_id == food.id)
-                        .distinct().order_by(UserRecord.user_id)]
-            moved = 0
-            for user_id in user_ids:
-                copy = self._personal_copy(db, food, user_id)
-                moved += (db.query(UserRecord)
-                          .filter(UserRecord.food_id == food.id, UserRecord.user_id == user_id)
-                          .update({UserRecord.food_id: copy.id}, synchronize_session=False))
+            locked = db.query(Food).filter(Food.id == food.id).with_for_update().first()
+            if locked is None:
+                db.rollback()
+                return 0
+            records = db.query(func.count(UserRecord.id)).filter(UserRecord.food_id == food.id).scalar()
+            if records != expected_records:
+                db.rollback()
+                return None
+            db.query(UserRecord).filter(UserRecord.food_id == food.id).delete(synchronize_session=False)
             # Bulk delete: db.delete(food) would try to null the FK of records still loaded in the session.
-            db.query(Food).filter(Food.id == food.id, Food.owner_id.is_(None)).delete(synchronize_session=False)
+            db.query(Food).filter(Food.id == food.id).delete(synchronize_session=False)
             db.commit()
         except Exception:
             db.rollback()
             raise
-        return len(user_ids), moved
-
-    @staticmethod
-    def _personal_copy(db: Session, food: Food, user_id: int) -> Food:
-        copy = Food(name=food.name, calories=food.calories, protein=food.protein, owner_id=user_id, suggestion_status=None)
-        db.add(copy)
-        db.flush()  # assigns copy.id inside the open transaction; nothing is committed yet
-        return copy
+        return records
 
     def create(self, db: Session, name: str, calories: float, protein: float,
                owner_id: Optional[int] = None, suggestion_status: Optional[str] = None) -> Food:
@@ -135,10 +137,6 @@ class FoodRepository:
         db.commit()
         db.refresh(food)
         return food
-
-    def delete(self, db: Session, food: Food) -> None:
-        db.delete(food)
-        db.commit()
 
     def approve(self, db: Session, food: Food) -> Food:
         """Moves a suggestion into the global pool in place; the id is unchanged."""

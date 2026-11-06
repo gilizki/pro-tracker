@@ -52,7 +52,8 @@ class FoodService:
 
     - users see global foods plus their own personal foods, nothing else;
     - another user's personal food is reported as "not found", even to admins;
-    - only admins create, edit or delete global foods and approve/reject suggestions.
+    - only admins create, edit or delete global foods and approve/reject suggestions;
+    - deleting a food also deletes every log entry that uses it, after a confirmed count.
     """
 
     def __init__(self):
@@ -72,6 +73,7 @@ class FoodService:
             self._block_global_duplicate(db, name)
             food = self.foods.create(db, name, calories, protein)
         else:
+            self._block_personal_duplicate(db, user, name)
             if suggest:
                 self._block_global_duplicate(db, name, code="duplicate_global_suggestion")
             elif not allow_duplicate:
@@ -92,6 +94,8 @@ class FoodService:
             return self.to_dict(self.foods.update(db, food, name, calories, protein, None), user)
 
         # From here on the food is the caller's own personal food (find_visible guarantees it).
+        if normalize_food_name(name) != normalize_food_name(food.name):
+            self._block_personal_duplicate(db, user, name, exclude_id=food.id)
         changed = (name, calories, protein) != (food.name, food.calories, food.protein)
         new_status = food.suggestion_status
         if suggest is True:
@@ -109,37 +113,36 @@ class FoodService:
             self._warn_global_duplicate(db, name)
         return self.to_dict(self.foods.update(db, food, name, calories, protein, new_status), user)
 
-    def delete_food(self, db: Session, user: User, food_id: int, keep_personal_copies: bool = False) -> dict:
-        food = self._find_visible_or_404(db, user, food_id)  # another user's personal food -> 404, even for admins
+    def food_usage(self, db: Session, user: User, food_id: int) -> dict:
+        """Preview for the delete confirmation: how many log entries (and of how many users) would be removed."""
+        food = self._find_deletable_or_error(db, user, food_id)
+        users, records = self.foods.usage(db, food.id)
+        return {"food_id": food.id, "scope": "global" if food.owner_id is None else "personal",
+                "users": users, "records": records}
+
+    def delete_food(self, db: Session, user: User, food_id: int, confirm_records: int = 0) -> dict:
+        """Deletes the food together with every log entry that uses it (all or nothing).
+
+        ``confirm_records`` is the entry count the user confirmed in the preview. If the real count differs
+        (nothing logged yet = 0 needs no confirmation), nothing is deleted and the server answers 409 with
+        the current numbers, so the app can ask again. A pending suggestion is the food row itself, so it
+        disappears with it."""
+        food = self._find_deletable_or_error(db, user, food_id)
+        deleted = self.foods.delete_with_records(db, food, expected_records=confirm_records)
+        if deleted is None:
+            users, records = self.foods.usage(db, food.id)
+            raise HTTPException(status_code=409, detail={
+                "code": "food_in_use_confirm", "users": users, "records": records,
+                "message": f"This food appears in {records} log entries of {users} user(s). Confirm with "
+                           f"confirm_records={records} to delete it together with those entries."})
+        return {"status": "deleted", "records_deleted": deleted}
+
+    def _find_deletable_or_error(self, db: Session, user: User, food_id: int) -> Food:
+        """Own personal food: its owner. Global food: admins only. Another user's personal food -> 404, even for admins."""
+        food = self._find_visible_or_404(db, user, food_id)
         if food.owner_id is None:
             require_admin(user)
-            users, records = self.foods.usage(db, food.id)
-            if not records:
-                self.foods.delete(db, food)
-                return {"status": "deleted", "personal_copies": 0, "records_moved": 0}
-            # Used by someone: only with explicit confirmation, after which each of those users keeps a personal copy.
-            if not keep_personal_copies:
-                raise HTTPException(status_code=409, detail={
-                    "code": "food_in_use_global", "users": users, "records": records,
-                    "message": f"{users} user(s) logged this food ({records} record(s)). Confirm with "
-                               "keep_personal_copies=true to remove it from the global pool and keep a personal copy for them."})
-            copies, moved = self.foods.delete_global_keeping_personal_copies(db, food)
-            return {"status": "deleted", "personal_copies": copies, "records_moved": moved}
-        # Own personal food. Records reference foods by id; deleting a used food would break meal history.
-        if self.foods.has_records(db, food.id):
-            raise HTTPException(status_code=409, detail={
-                "code": "food_in_use", "message": "This food is used in meal records and cannot be deleted."})
-        self.foods.delete(db, food)
-        return {"status": "deleted"}
-
-    def global_food_usage(self, db: Session, admin: User, food_id: int) -> dict:
-        """Preview for the admin's delete confirmation: who would get a personal copy."""
-        require_admin(admin)
-        food = self.foods.find_visible(db, food_id, admin.id)
-        if not food or food.owner_id is not None:
-            raise HTTPException(status_code=404, detail="Global food not found")
-        users, records = self.foods.usage(db, food.id)
-        return {"food_id": food.id, "users": users, "records": records}
+        return food
 
     # ---------------------------------------------------------------- admin actions
     def list_suggestions(self, db: Session, admin: User) -> list[dict]:
@@ -195,6 +198,15 @@ class FoodService:
             raise HTTPException(status_code=409, detail={
                 "code": code, "food_id": duplicate.id,
                 "message": f'A global food named "{duplicate.name}" already exists.'})
+
+    def _block_personal_duplicate(self, db: Session, user: User, name: str, exclude_id: Optional[int] = None) -> None:
+        """A user never needs two personal foods with the same name; this is what used to produce "Name #2"
+        in the food list (e.g. a double-tapped Save)."""
+        duplicate = self.foods.find_personal_by_name(db, user.id, name, exclude_id=exclude_id)
+        if duplicate:
+            raise HTTPException(status_code=409, detail={
+                "code": "duplicate_personal", "food_id": duplicate.id,
+                "message": f'You already have a personal food named "{duplicate.name}".'})
 
     def _warn_global_duplicate(self, db: Session, name: str) -> None:
         """Personal foods may share a global name, but only after the user confirms."""
